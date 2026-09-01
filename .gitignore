@@ -1,0 +1,100 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Python environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+.wheels/
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Linters and type checkers
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Research datasets and recordings
+# Keep directory placeholders, never commit raw or sensitive captures.
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+*.pcap
+*.pcapng
+*.dat
+*.bin
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.parquet
+*.feather
+*.wav
+*.flac
+*.mp3
+*.mp4
+*.mov
+*.avi
+
+# Experiment outputs and model artifacts
+experiments/runs/
+experiments/outputs/
+models/
+checkpoints/
+*.onnx
+*.pt
+*.pth
+*.ckpt
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editors and IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+.tmp/
+tmp/
+temp/
