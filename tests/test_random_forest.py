@@ -110,12 +110,30 @@ def test_random_forest_training_persists_separate_generic_artifacts_and_report(
     assert artifact["model"]["family"] == "random_forest"
     assert artifact["model"]["training_code"] == "wifall.random_forest"
     assert artifact["model"]["decision_threshold"] == artifact["selection"]["selected"]["threshold"]
-    assert artifact["model"]["threshold_policy"] == "maximize_validation_f1_then_sensitivity"
+    assert artifact["model"]["threshold_policy"] == "maximize_grouped_validation_f1_then_sensitivity"
     assert artifact["features"]["name"] == "csi_normalized_temporal_v1"
-    assert artifact["preprocessing"]["fit_split"] == "train"
+    assert artifact["preprocessing"]["fit_split"] == "train+validation"
     assert artifact["split"]["strategy"] == "participant-held-out"
     assert artifact["split"]["participants"] == load_split_manifest(manifest_path)["participants"]
-    assert artifact["selection"]["selection_split"] == "validation"
+    assert artifact["selection"]["selection_split"] == "grouped_validation"
+    protocol = artifact["selection"]["protocol"]
+    assert protocol["method"] == "leave_one_participant_out"
+    assert protocol["participant_weight_policy"] == "equal_participant_contribution"
+    assert len(protocol["folds"]) == 4
+    assert {
+        tuple(fold["validation_participants"]) for fold in protocol["folds"]
+    } == {(participant,) for participant in protocol["participants"]}
+    assert all(
+        set(fold["validation_participants"]).isdisjoint(protocol["test_participants"])
+        for fold in protocol["folds"]
+    )
+    assert set(protocol["participants"]).isdisjoint(protocol["test_participants"])
+    for fold in protocol["folds"]:
+        contributions = {
+            round(values["recordings"] * values["weight_per_recording"], 8)
+            for values in fold["participant_weights"].values()
+        }
+        assert contributions == {1.0}
     assert set(artifact["evaluations"]) == {"train", "validation", "test"}
     assert artifact["evaluations"]["test"]["participant_metrics"]
     assert "random_forest" in run.report_path.read_text(encoding="utf-8")
@@ -154,5 +172,5 @@ def test_random_forest_selection_and_artifact_are_reproducible(tmp_path: Path) -
     second_json = json.loads(second.artifact_path.read_text(encoding="utf-8"))
     assert first_json == second_json
     selected = first_json["selection"]["selected"]
-    assert selected["selection_metrics"]["split"] == "validation"
-    assert "test" not in first_json["selection"]
+    assert selected["selection_metrics"]["split"] == "grouped_validation"
+    assert "test" not in first_json["selection"]["protocol"]["participants"]

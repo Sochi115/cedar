@@ -3,7 +3,7 @@
 Status: open
 Type: task
 Label: ready-for-agent
-Blocked by: wifall-model-improvement-03-grouped-validation.md
+Blocked by: completed/wifall-model-improvement-03-grouped-validation.md
 
 ## What to build
 

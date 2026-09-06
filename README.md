@@ -177,7 +177,7 @@ data/processed/wifall/random-forest-run/
 └── run.json
 ```
 
-Random Forest parameters and fall-score threshold are selected from training and validation participants only. Test participants are evaluated once for final aggregate and per-participant metrics.
+Random Forest parameters and fall-score threshold are selected with leave-one-participant-out validation across training and validation participants, with equal participant contribution. Test participants are evaluated once for final aggregate and per-participant metrics.
 
 ## 7. Generate static HTML report
 

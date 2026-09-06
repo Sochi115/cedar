@@ -10,6 +10,7 @@ from typing import Any
 import joblib
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import LeaveOneGroupOut
 
 from evaluation import evaluate_classifier, render_html_report, save_evaluation_result
 
@@ -37,7 +38,7 @@ class RandomForestConfig:
     class_weight: str = "balanced"
     random_state: int = 42
     feature: ImprovedFeatureConfig = field(default_factory=ImprovedFeatureConfig)
-    threshold_policy: str = "maximize_validation_f1_then_sensitivity"
+    threshold_policy: str = "maximize_grouped_validation_f1_then_sensitivity"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -137,6 +138,7 @@ def _fit_estimator(
     min_samples_leaf: int,
     max_features: str | float | None,
     config: RandomForestConfig,
+    sample_weight: np.ndarray | None = None,
 ) -> RandomForestClassifier:
     estimator = RandomForestClassifier(
         n_estimators=n_estimators,
@@ -147,8 +149,78 @@ def _fit_estimator(
         random_state=config.random_state,
         n_jobs=1,
     )
-    estimator.fit(train_features, train_labels)
+    estimator.fit(train_features, train_labels, sample_weight=sample_weight)
     return estimator
+
+
+def _participant_weights(
+    records: list[tuple[str, str, Recording]],
+) -> tuple[np.ndarray, dict[str, dict[str, float | int]]]:
+    counts: dict[str, int] = {}
+    for participant, _, _ in records:
+        counts[participant] = counts.get(participant, 0) + 1
+    weights = np.asarray(
+        [1.0 / counts[participant] for participant, _, _ in records],
+        dtype=np.float64,
+    )
+    metadata = {
+        participant: {
+            "recordings": count,
+            "weight_per_recording": 1.0 / count,
+        }
+        for participant, count in sorted(counts.items())
+    }
+    return weights, metadata
+
+
+def _grouped_fold_indices(
+    records: list[tuple[str, str, Recording]],
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    participants = np.asarray([participant for participant, _, _ in records], dtype=object)
+    if len(set(participants.tolist())) < 2:
+        raise DatasetFormatError("Grouped validation requires at least two participants")
+    splitter = LeaveOneGroupOut()
+    placeholder = np.zeros((len(records), 1), dtype=np.float64)
+    return [
+        (train_indices, validation_indices)
+        for train_indices, validation_indices in splitter.split(
+            placeholder, groups=participants
+        )
+    ]
+
+
+def _selection_protocol(
+    records: list[tuple[str, str, Recording]],
+    test_participants: list[str],
+    folds: list[tuple[np.ndarray, np.ndarray]],
+) -> dict[str, Any]:
+    fold_metadata = []
+    for index, (train_indices, validation_indices) in enumerate(folds):
+        train_records = [records[position] for position in train_indices]
+        validation_records = [records[position] for position in validation_indices]
+        _, participant_weights = _participant_weights(train_records)
+        fold_metadata.append(
+            {
+                "index": index,
+                "train_participants": sorted({record[0] for record in train_records}),
+                "validation_participants": sorted(
+                    {record[0] for record in validation_records}
+                ),
+                "train_recordings": len(train_records),
+                "validation_recordings": len(validation_records),
+                "participant_weights": participant_weights,
+            }
+        )
+    _, final_weights = _participant_weights(records)
+    return {
+        "method": "leave_one_participant_out",
+        "selection_splits": ["train", "validation"],
+        "participants": sorted({participant for participant, _, _ in records}),
+        "test_participants": sorted(test_participants),
+        "participant_weight_policy": "equal_participant_contribution",
+        "final_fit_participant_weights": final_weights,
+        "folds": fold_metadata,
+    }
 
 
 def _participant_results(
@@ -227,45 +299,51 @@ def train_random_forest(
     audit_path = output / "dataset_audit.json"
     audit_path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    train_records = split_records["train"]
-    validation_records = split_records["validation"]
-    if not train_records or not validation_records:
-        raise DatasetFormatError("Random Forest requires train and validation recordings")
+    selection_records = split_records["train"] + split_records["validation"]
+    if not selection_records:
+        raise DatasetFormatError("Random Forest requires non-test selection recordings")
+    selection_features = np.vstack(
+        [
+            extract_random_forest_features(record, config.feature)
+            for _, _, record in selection_records
+        ]
+    )
+    selection_labels = np.asarray(
+        [record.target for _, _, record in selection_records], dtype=object
+    )
+    if set(selection_labels) != set(LABELS):
+        raise DatasetFormatError("Selection participants must contain fall and non-fall recordings")
 
-    train_features = np.vstack(
-        [extract_random_forest_features(record, config.feature) for _, _, record in train_records]
+    folds = _grouped_fold_indices(selection_records)
+    selection_protocol = _selection_protocol(
+        selection_records,
+        manifest["participants"]["test"],
+        folds,
     )
-    validation_features = np.vstack(
-        [extract_random_forest_features(record, config.feature) for _, _, record in validation_records]
-    )
-    train_labels = np.asarray([record.target for _, _, record in train_records], dtype=object)
-    validation_labels = np.asarray(
-        [record.target for _, _, record in validation_records], dtype=object
-    )
-    if set(train_labels) != set(LABELS):
-        raise DatasetFormatError("Training split must contain fall and non-fall recordings")
-    if set(validation_labels) != set(LABELS):
-        raise DatasetFormatError("Validation split must contain fall and non-fall recordings")
-
     candidates: list[dict[str, Any]] = []
     for n_estimators in config.n_estimators:
         for max_depth in config.max_depth:
             for min_samples_leaf in config.min_samples_leaf:
                 for max_features in config.max_features:
-                    estimator = _fit_estimator(
-                        train_features,
-                        train_labels,
-                        n_estimators=n_estimators,
-                        max_depth=max_depth,
-                        min_samples_leaf=min_samples_leaf,
-                        max_features=max_features,
-                        config=config,
-                    )
-                    validation_scores = ThresholdedRandomForest(estimator, 0.5).decision_function(
-                        validation_features
-                    )
+                    out_of_fold_scores = np.empty(selection_labels.shape[0], dtype=np.float64)
+                    for train_indices, validation_indices in folds:
+                        fold_records = [selection_records[index] for index in train_indices]
+                        fold_weights, _ = _participant_weights(fold_records)
+                        estimator = _fit_estimator(
+                            selection_features[train_indices],
+                            selection_labels[train_indices],
+                            n_estimators=n_estimators,
+                            max_depth=max_depth,
+                            min_samples_leaf=min_samples_leaf,
+                            max_features=max_features,
+                            config=config,
+                            sample_weight=fold_weights,
+                        )
+                        out_of_fold_scores[validation_indices] = ThresholdedRandomForest(
+                            estimator, 0.5
+                        ).decision_function(selection_features[validation_indices])
                     threshold, threshold_table = select_threshold(
-                        validation_labels, validation_scores
+                        selection_labels, out_of_fold_scores
                     )
                     candidates.append(
                         {
@@ -279,7 +357,7 @@ def train_random_forest(
                             "validation_f1": threshold.f1,
                             "validation_sensitivity": threshold.sensitivity,
                             "selection_metrics": {
-                                "split": "validation",
+                                "split": "grouped_validation",
                                 "f1": threshold.f1,
                                 "sensitivity": threshold.sensitivity,
                                 "false_positive_rate": threshold.false_positive_rate,
@@ -297,14 +375,16 @@ def train_random_forest(
             -candidate["threshold_metrics"]["false_positive_rate"],
         ),
     )
+    final_weights, _ = _participant_weights(selection_records)
     final_estimator = _fit_estimator(
-        train_features,
-        train_labels,
+        selection_features,
+        selection_labels,
         n_estimators=selected["n_estimators"],
         max_depth=selected["max_depth"],
         min_samples_leaf=selected["min_samples_leaf"],
         max_features=selected["max_features"],
         config=config,
+        sample_weight=final_weights,
     )
     thresholded = ThresholdedRandomForest(final_estimator, selected["threshold"])
     feature_pipeline = WiFallRandomForestPipeline(thresholded, config.feature)
@@ -327,26 +407,30 @@ def train_random_forest(
         },
         "decision_threshold": selected["threshold"],
         "threshold_policy": config.threshold_policy,
+        "fit_splits": ["train", "validation"],
+        "fit_participants": selection_protocol["participants"],
         "score_orientation": {
             "positive_label": "fall",
             "score": "fall_probability",
             "source": "RandomForestClassifier.predict_proba",
         },
     }
-    feature_metadata = config.feature.as_dict() | {"count": int(train_features.shape[1])}
+    feature_metadata = config.feature.as_dict() | {"count": int(selection_features.shape[1])}
     preprocessing_metadata = {
         "steps": [
             "per-recording CSI amplitude median/MAD normalization",
             "four temporal windows",
             "RandomForestClassifier",
         ],
-        "fit_split": "train",
+        "fit_split": "train+validation",
     }
     split_metadata = {
         "strategy": "participant-held-out",
         "config": manifest["split_config"],
         "participants": manifest["participants"],
         "counts": manifest["counts"],
+        "selection_participants": selection_protocol["participants"],
+        "test_participants": selection_protocol["test_participants"],
     }
     metadata = {
         "run_id": config.run_id,
@@ -385,6 +469,7 @@ def train_random_forest(
             group_ids=[participant for participant, _, _ in records],
         )
         evaluation = evaluation_result["evaluations"][split]
+        evaluation["fit_status"] = "fit_data" if split in {"train", "validation"} else "held_out"
         evaluation["participant_metrics"] = _participant_results(
             split, records, features, thresholded, metadata
         )
@@ -405,7 +490,8 @@ def train_random_forest(
         "selection": {
             "candidates": candidates,
             "selected": selected,
-            "selection_split": "validation",
+            "selection_split": "grouped_validation",
+            "protocol": selection_protocol,
         },
     }
     artifact_path = output / "run.json"
