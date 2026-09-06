@@ -16,6 +16,7 @@ dependencies = [
 [project.scripts]
 wifall = "wifall.cli:main"
 evaluation-report = "evaluation.cli:main"
+evaluation-compare = "evaluation.comparison:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

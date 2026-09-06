@@ -228,6 +228,20 @@ The report shows:
 - ROC-AUC and PR-AUC when compatible scores exist
 - `Not available` for optional metrics that cannot be calculated
 
+## 9. Compare model runs
+
+Generate one offline comparison report from any valid generic run artifacts:
+
+```bash
+uv run python -m evaluation.comparison \
+  data/processed/wifall/comparison/report.html \
+  data/processed/wifall/svm-run/run.json \
+  data/processed/wifall/improved-svm-run/run.json \
+  data/processed/wifall/random-forest-run/run.json
+```
+
+The comparison report links each run's individual report, compares metrics and metadata, and warns when labels, tasks, datasets, or evaluation protocols differ. Future model families only need valid generic run artifacts.
+
 ## Full command sequence
 
 Run this sequence from repository root:
@@ -261,9 +275,16 @@ uv run python -m wifall.cli train-random-forest \
   data/processed/wifall/split.json \
   data/processed/wifall/random-forest-run
 
+uv run python -m evaluation.comparison \
+  data/processed/wifall/comparison/report.html \
+  data/processed/wifall/svm-run/run.json \
+  data/processed/wifall/improved-svm-run/run.json \
+  data/processed/wifall/random-forest-run/run.json
+
 open data/processed/wifall/svm-run/report.html
 open data/processed/wifall/improved-svm-run/report.html
 open data/processed/wifall/random-forest-run/report.html
+open data/processed/wifall/comparison/report.html
 ```
 
 ## Generic evaluation flow
