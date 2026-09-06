@@ -1,6 +1,6 @@
 # Find Reproducible CSI Fall-Detection Repositories
 
-Status: claimed
+Status: dropped
 Type: research
 Label: wayfinder:research
 Blocked by: none

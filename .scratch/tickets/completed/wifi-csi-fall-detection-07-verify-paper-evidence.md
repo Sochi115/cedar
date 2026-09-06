@@ -1,6 +1,6 @@
 # Verify Initial Paper Evidence
 
-Status: claimed
+Status: dropped
 Type: research
 Label: wayfinder:research
 Blocked by: none

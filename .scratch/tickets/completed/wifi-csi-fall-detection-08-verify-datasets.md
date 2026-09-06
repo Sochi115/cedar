@@ -1,6 +1,6 @@
 # Verify Candidate Dataset Resources
 
-Status: claimed
+Status: dropped
 Type: research
 Label: wayfinder:research
 Blocked by: none
