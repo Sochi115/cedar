@@ -16,20 +16,38 @@ from .loader import (
     save_split_manifest,
     summarize_dataset,
 )
+from .svm import (
+    FeatureConfig,
+    SvmConfig,
+    SvmRun,
+    WiFallSvmPipeline,
+    extract_recording_features,
+    load_run_artifact,
+    load_trained_svm,
+    train_svm,
+)
 
 __all__ = [
     "CsiParseError",
     "DatasetFormatError",
     "DatasetSummary",
+    "FeatureConfig",
     "Recording",
     "RecordingReference",
     "RecordingSummary",
     "SplitConfig",
+    "SvmConfig",
+    "SvmRun",
+    "WiFallSvmPipeline",
     "discover_recordings",
+    "extract_recording_features",
     "generate_split_manifest",
     "load_recording",
+    "load_run_artifact",
     "load_split_manifest",
+    "load_trained_svm",
     "parse_csi_field",
     "save_split_manifest",
     "summarize_dataset",
+    "train_svm",
 ]
