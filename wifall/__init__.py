@@ -1,5 +1,16 @@
 """WiFall dataset loading and participant-held-out split utilities."""
 
+from .audit import audit_wifall
+from .improved_svm import (
+    ImprovedFeatureConfig,
+    ImprovedSvmConfig,
+    ImprovedSvmRun,
+    ImprovedWiFallSvmPipeline,
+    extract_improved_features,
+    load_improved_svm,
+    select_threshold,
+    train_improved_svm,
+)
 from .loader import (
     CsiParseError,
     DatasetFormatError,
@@ -31,6 +42,10 @@ __all__ = [
     "DatasetFormatError",
     "DatasetSummary",
     "FeatureConfig",
+    "ImprovedFeatureConfig",
+    "ImprovedSvmConfig",
+    "ImprovedSvmRun",
+    "ImprovedWiFallSvmPipeline",
     "Recording",
     "RecordingReference",
     "RecordingSummary",
@@ -38,14 +53,19 @@ __all__ = [
     "SvmConfig",
     "SvmRun",
     "WiFallSvmPipeline",
+    "audit_wifall",
     "discover_recordings",
+    "extract_improved_features",
     "extract_recording_features",
     "generate_split_manifest",
+    "load_improved_svm",
     "load_recording",
     "load_split_manifest",
     "load_trained_svm",
     "parse_csi_field",
     "save_split_manifest",
+    "select_threshold",
     "summarize_dataset",
+    "train_improved_svm",
     "train_svm",
 ]

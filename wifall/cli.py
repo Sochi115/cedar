@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from .improved_svm import train_improved_svm
 from .loader import (
     SplitConfig,
     generate_split_manifest,
@@ -33,6 +34,13 @@ def _build_parser() -> argparse.ArgumentParser:
     train.add_argument("dataset_root", type=Path)
     train.add_argument("split_manifest", type=Path)
     train.add_argument("output_dir", type=Path)
+
+    improved = subparsers.add_parser(
+        "train-improved-svm", help="train and evaluate the improved SVM"
+    )
+    improved.add_argument("dataset_root", type=Path)
+    improved.add_argument("split_manifest", type=Path)
+    improved.add_argument("output_dir", type=Path)
     return parser
 
 
@@ -55,9 +63,17 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(manifest["counts"], indent=2, sort_keys=True))
         return 0
 
-    run = train_svm(args.dataset_root, args.split_manifest, args.output_dir)
+    if args.command == "train-svm":
+        run = train_svm(args.dataset_root, args.split_manifest, args.output_dir)
+        print(f"Wrote model: {run.model_path}")
+        print(f"Wrote run artifact: {run.artifact_path}")
+        return 0
+
+    run = train_improved_svm(args.dataset_root, args.split_manifest, args.output_dir)
     print(f"Wrote model: {run.model_path}")
+    print(f"Wrote audit: {run.audit_path}")
     print(f"Wrote run artifact: {run.artifact_path}")
+    print(f"Wrote report: {run.report_path}")
     return 0
 
 

@@ -127,6 +127,80 @@ def _confusion_matrix_table(evaluation: Mapping[str, Any]) -> str:
     )
 
 
+def _group_metrics_table(evaluation: Mapping[str, Any]) -> str:
+    groups = evaluation.get("participant_metrics") or evaluation.get("group_metrics")
+    if not isinstance(groups, Mapping):
+        return ""
+    rows = []
+    for group, group_evaluation in groups.items():
+        metrics = group_evaluation.get("metrics", {})
+        rows.append(
+            "<tr>"
+            f"<th>{_escape(group)}</th>"
+            f"<td>{_format_value(metrics.get('accuracy'))}</td>"
+            f"<td>{_format_value(metrics.get('sensitivity'))}</td>"
+            f"<td>{_format_value(metrics.get('specificity'))}</td>"
+            f"<td>{_format_value(metrics.get('f1'))}</td>"
+            "</tr>"
+        )
+    return (
+        "<h3>Group metrics</h3>"
+        "<table class='metrics'><thead><tr><th>group</th>"
+        "<th>accuracy</th><th>sensitivity</th><th>specificity</th><th>F1</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
+def _score_distribution_table(evaluation: Mapping[str, Any]) -> str:
+    distribution = evaluation.get("score_distribution")
+    if not isinstance(distribution, Mapping):
+        return ""
+    groups = distribution.get("by_participant", {})
+    if not isinstance(groups, Mapping):
+        return ""
+    rows = []
+    for group, values in groups.items():
+        rows.append(
+            "<tr>"
+            f"<th>{_escape(group)}</th>"
+            f"<td>{_format_value(values.get('min'))}</td>"
+            f"<td>{_format_value(values.get('mean'))}</td>"
+            f"<td>{_format_value(values.get('max'))}</td>"
+            "</tr>"
+        )
+    return (
+        "<h3>Score distribution by group</h3>"
+        "<table class='metrics'><thead><tr><th>group</th>"
+        "<th>minimum</th><th>mean</th><th>maximum</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
+def _threshold_table(evaluation: Mapping[str, Any]) -> str:
+    thresholds = evaluation.get("threshold_metrics")
+    if not isinstance(thresholds, list) or not thresholds:
+        return ""
+    rows = []
+    for values in thresholds:
+        rows.append(
+            "<tr>"
+            f"<td>{_format_value(values.get('threshold'))}</td>"
+            f"<td>{_format_value(values.get('precision'))}</td>"
+            f"<td>{_format_value(values.get('sensitivity'))}</td>"
+            f"<td>{_format_value(values.get('specificity'))}</td>"
+            f"<td>{_format_value(values.get('f1'))}</td>"
+            f"<td>{_format_value(values.get('false_positive_rate'))}</td>"
+            "</tr>"
+        )
+    return (
+        "<h3>Threshold metrics</h3>"
+        "<table class='metrics'><thead><tr><th>threshold</th>"
+        "<th>precision</th><th>sensitivity</th><th>specificity</th>"
+        "<th>F1</th><th>false-positive rate</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
 def _evaluation_section(name: str, evaluation: Mapping[str, Any], primary: bool) -> str:
     metrics = evaluation.get("metrics", {})
     title = f"Evaluation: {_escape(name)}"
@@ -139,7 +213,10 @@ def _evaluation_section(name: str, evaluation: Mapping[str, Any], primary: bool)
         f"{_confusion_matrix_table(evaluation)}"
         f"{_metric_table(metrics)}"
         f"{_per_class_table(metrics)}"
-        f"{_averages_table(metrics)}</section>"
+        f"{_averages_table(metrics)}"
+        f"{_group_metrics_table(evaluation)}"
+        f"{_score_distribution_table(evaluation)}"
+        f"{_threshold_table(evaluation)}</section>"
     )
 
 
@@ -160,6 +237,7 @@ def render_html_report(result: Mapping[str, Any]) -> str:
             _metadata_table("Features", result.get("features", {})),
             _metadata_table("Preprocessing", result.get("preprocessing", {})),
             _metadata_table("Split", result.get("split", {})),
+            _metadata_table("Data audit", result.get("data_audit", {})),
         )
     )
     title = _escape(result.get("run_id", "Evaluation report"))
