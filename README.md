@@ -1,0 +1,225 @@
+# WiFi CSI Fall Detection
+
+Proof of concept for WiFi CSI fall detection using the WiFall dataset.
+
+This repository has two separate stages:
+
+1. WiFall-specific data loading and SVM training.
+2. Generic model validation and static HTML reporting.
+
+The HTML report does not depend on WiFall, WiFi CSI, or SVM. Any compatible classification model can produce an evaluation result artifact for the same renderer.
+
+## Requirements
+
+- Python 3.12 or newer
+- `uv`
+- macOS, Linux, or Windows
+
+Install project dependencies:
+
+```bash
+uv sync
+```
+
+Run commands from repository root.
+
+## 1. Download WiFall
+
+Raw datasets are ignored by Git. Download WiFall only when `data/raw/wifall/WiFall/` does not exist:
+
+```bash
+mkdir -p data/raw/wifall
+curl -L --fail --retry 3 \
+  --output data/raw/wifall/WiFall.zip \
+  'https://huggingface.co/datasets/RS2002/WiFall/resolve/main/WiFall.zip'
+unzip -q data/raw/wifall/WiFall.zip -d data/raw/wifall
+```
+
+Expected layout:
+
+```text
+data/raw/wifall/WiFall/
+├── ID0/
+│   ├── fall/
+│   ├── Jump/
+│   ├── sit/
+│   ├── stand/
+│   └── walk/
+└── ID9/
+```
+
+## 2. Validate the dataset
+
+Run dataset validation and print counts:
+
+```bash
+uv run python -m wifall.cli summarize data/raw/wifall/WiFall
+```
+
+Expected WiFall counts:
+
+```text
+10 participants
+928 recordings
+232,941 CSI rows
+```
+
+The loader parses each 104-value CSI array into 52 complex subcarriers. It preserves participant and activity metadata and creates `fall` or `non-fall` targets.
+
+## 3. Create participant-held-out splits
+
+Create output directories and a deterministic split manifest:
+
+```bash
+mkdir -p data/processed/wifall
+uv run python -m wifall.cli split \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json \
+  --seed 42 \
+  --test-participants 2 \
+  --validation-participants 1
+```
+
+The default split contains:
+
+- Training participants: 7
+- Validation participants: 1
+- Test participants: 2
+
+Complete participants stay in one split. This prevents participant leakage.
+
+## 4. Train and evaluate the WiFall SVM
+
+Train the baseline and write its model plus generic evaluation result:
+
+```bash
+uv run python -m wifall.cli train-svm \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json \
+  data/processed/wifall/svm-run
+```
+
+Outputs:
+
+```text
+data/processed/wifall/svm-run/
+├── model.joblib
+└── run.json
+```
+
+`model.joblib` contains the CSI feature extraction, `StandardScaler`, and SVM pipeline.
+
+`run.json` contains the model-agnostic evaluation result:
+
+- True labels and predicted labels
+- Optional decision scores
+- Confusion matrix
+- Accuracy and balanced accuracy
+- Precision, recall, sensitivity, specificity, F1
+- False-positive rate
+- Macro and weighted metrics
+- Optional ROC-AUC and PR-AUC
+- Dataset, task, model, feature, preprocessing, and split metadata
+
+Training does not fit or refit on validation or test data.
+
+## 5. Generate static HTML report
+
+Render the JSON evaluation result as self-contained HTML:
+
+```bash
+uv run python -m evaluation.cli \
+  data/processed/wifall/svm-run/run.json \
+  data/processed/wifall/svm-run/report.html
+```
+
+Equivalent installed command:
+
+```bash
+evaluation-report \
+  data/processed/wifall/svm-run/run.json \
+  data/processed/wifall/svm-run/report.html
+```
+
+## 6. View the report
+
+On macOS:
+
+```bash
+open data/processed/wifall/svm-run/report.html
+```
+
+On Linux:
+
+```bash
+xdg-open data/processed/wifall/svm-run/report.html
+```
+
+On Windows PowerShell:
+
+```powershell
+Start-Process data/processed/wifall/svm-run/report.html
+```
+
+The report shows:
+
+- Dataset, task, model, feature, preprocessing, and split metadata
+- Confusion matrix counts and row percentages
+- Overall metrics
+- Per-class metrics
+- Macro and weighted averages
+- Binary fall-detection metrics
+- ROC-AUC and PR-AUC when compatible scores exist
+- `Not available` for optional metrics that cannot be calculated
+
+## Full command sequence
+
+Run this sequence from repository root:
+
+```bash
+uv sync
+
+uv run python -m wifall.cli summarize data/raw/wifall/WiFall
+
+mkdir -p data/processed/wifall
+uv run python -m wifall.cli split \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json
+
+uv run python -m wifall.cli train-svm \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json \
+  data/processed/wifall/svm-run
+
+uv run python -m evaluation.cli \
+  data/processed/wifall/svm-run/run.json \
+  data/processed/wifall/svm-run/report.html
+
+open data/processed/wifall/svm-run/report.html
+```
+
+## Generic evaluation flow
+
+The report does not require the WiFall SVM. Another classification model can call the generic validator with:
+
+```text
+model + validation features + validation labels
+    → evaluation result JSON
+    → evaluation HTML report
+```
+
+The result artifact must follow the schema produced by `evaluation.evaluate_classifier`. The renderer only reads this artifact. It does not import the model or dataset implementation.
+
+## Tests
+
+Run the full test suite:
+
+```bash
+uv run pytest
+```
+
+Run lint checks:
+
+```bash
+uv run ruff check evaluation wifall tests pyproject.toml
+```
