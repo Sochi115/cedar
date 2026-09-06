@@ -22,7 +22,6 @@ from .svm import (
     SvmRun,
     WiFallSvmPipeline,
     extract_recording_features,
-    load_run_artifact,
     load_trained_svm,
     train_svm,
 )
@@ -43,7 +42,6 @@ __all__ = [
     "extract_recording_features",
     "generate_split_manifest",
     "load_recording",
-    "load_run_artifact",
     "load_split_manifest",
     "load_trained_svm",
     "parse_csi_field",

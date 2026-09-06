@@ -6,13 +6,13 @@ from pathlib import Path
 
 import numpy as np
 
+from evaluation import load_evaluation_result
 from wifall import (
     FeatureConfig,
     SplitConfig,
     SvmConfig,
     extract_recording_features,
     generate_split_manifest,
-    load_run_artifact,
     load_trained_svm,
     save_split_manifest,
     train_svm,
@@ -93,7 +93,7 @@ def test_svm_training_persists_generic_artifact_and_model(tmp_path: Path) -> Non
 
     assert run.artifact_path.exists()
     assert run.model_path.exists()
-    artifact = load_run_artifact(run.artifact_path)
+    artifact = load_evaluation_result(run.artifact_path)
     assert artifact["run_id"] == "test-run"
     assert artifact["task"]["labels"] == ["non-fall", "fall"]
     assert artifact["model"]["family"] == "svm"
@@ -124,19 +124,17 @@ def test_svm_scaler_fits_train_recordings_only_and_splits_have_no_leakage(
     artifact = run.artifact
 
     model = load_trained_svm(run.model_path)
-    train_count = len(artifact["evaluations"]["train"]["recording_ids"])
+    train_count = len(artifact["evaluations"]["train"]["observation_ids"])
     assert model.estimator.named_steps["scaler"].n_samples_seen_ == train_count
 
     references = {reference.recording_id: reference for reference in discover_recordings(root)}
-    test_ids = artifact["evaluations"]["test"]["recording_ids"]
+    test_ids = artifact["evaluations"]["test"]["observation_ids"]
     test_recordings = [load_recording(references[recording_id]) for recording_id in test_ids]
     predictions = model.predict_recordings(test_recordings)
-    assert [model_label for model_label in predictions] == [
-        1 if label == "fall" else 0 for label in artifact["evaluations"]["test"]["y_pred"]
-    ]
+    assert predictions.tolist() == artifact["evaluations"]["test"]["y_pred"]
 
     participant_sets = {
-        split: set(evaluation["participant_ids"])
+        split: set(evaluation["group_ids"])
         for split, evaluation in artifact["evaluations"].items()
     }
     assert participant_sets["train"].isdisjoint(participant_sets["validation"])

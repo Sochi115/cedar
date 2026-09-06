@@ -18,13 +18,14 @@ Create a reproducible WiFall fall-detection baseline using an SVM, persist model
 
 - [Make WiFall recordings reproducibly loadable](wifall-svm-report-01-load-and-split.md)
 - [Train and evaluate WiFall SVM baseline](wifall-svm-report-02-train-svm.md)
-- [Generate static HTML evaluation report](wifall-svm-report-03-static-report.md)
+- [Build generic model validation and static evaluation report](wifall-svm-report-03-static-report.md)
 - [Compare model and dataset runs](wifall-svm-report-04-compare-runs.md)
 
 ## Decisions so far
 
 - [Make WiFall recordings reproducibly loadable](wifall-svm-report-01-load-and-split.md): WiFall loading, CSI parsing, recording-level examples, and deterministic participant-held-out manifests implemented and verified against downloaded dataset counts.
 - [Train and evaluate WiFall SVM baseline](wifall-svm-report-02-train-svm.md): 260 CSI amplitude-statistic features feed a training-only StandardScaler and SVC; generic run artifacts store predictions, scores, metrics, and split metadata.
+- [Build generic model validation and static evaluation report](wifall-svm-report-03-static-report.md): Generic validation now produces model- and dataset-independent result artifacts; static HTML consumes only those artifacts.
 - SVM baseline starts with binary fall detection.
 - Complete recordings and participants remain within one split.
 - Run artifacts must contain enough metadata and predictions for model-agnostic reporting.
