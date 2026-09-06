@@ -87,6 +87,10 @@ def test_comparison_report_indexes_runs_and_displays_metadata_and_metrics(
 
     html = output.read_text(encoding="utf-8")
     assert "Evaluation comparison" in html
+    assert "Analysis and summary" in html
+    assert "Metric leaders" in html
+    assert "Human interpretation" in html
+    assert "Highest" not in html
     assert "svm-run" in html
     assert "random_forest-run" in html
     assert "training.svm" in html
@@ -135,6 +139,7 @@ def test_comparison_handles_missing_optional_metrics_and_future_runs(tmp_path: P
     assert "future_model-run" in html
     assert "Not available" in html
     assert "PR-AUC" in html
+    assert "No comparable metrics available" not in html
 
 
 def test_comparison_inputs_are_loaded_as_generic_result_artifacts(tmp_path: Path) -> None:

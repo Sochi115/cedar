@@ -151,6 +151,86 @@ def _metric_display(value: Any) -> str:
     return _escape(value)
 
 
+def _run_label(run: ComparisonRun) -> str:
+    return str(run.result.get("run_id", run.result_path.stem))
+
+
+def _leader(runs: tuple[ComparisonRun, ...], metric: str) -> tuple[str, float] | None:
+    values = []
+    for run in runs:
+        value = _metric_value(run, metric)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            values.append((_run_label(run), float(value)))
+    return max(values, key=lambda item: item[1]) if values else None
+
+
+def _analysis_summary(runs: tuple[ComparisonRun, ...], warnings: list[str]) -> str:
+    datasets = sorted({_dataset_name(run) for run in runs})
+    splits = sorted({str(run.result.get("evaluation_split", "Not available")) for run in runs})
+    summary = (
+        f"Compared {_escape(len(runs))} run(s) across {_escape(len(datasets))} dataset(s), "
+        f"using {_escape(', '.join(splits))} evaluation split(s)."
+    )
+    if warnings:
+        caution = (
+            "Compatibility warnings are present. Treat rankings as directional only until "
+            "runs share labels, task, dataset, and evaluation protocol."
+        )
+    else:
+        caution = "Runs share compatible labels, task, dataset, and evaluation protocol."
+
+    metric_leaders = []
+    for metric, label in (
+        ("accuracy", "Accuracy"),
+        ("balanced_accuracy", "Balanced accuracy"),
+        ("f1", "F1"),
+        ("recall", "Recall"),
+        ("precision", "Precision"),
+        ("specificity", "Specificity"),
+        ("roc_auc", "ROC-AUC"),
+        ("pr_auc", "PR-AUC"),
+    ):
+        leader = _leader(runs, metric)
+        if leader:
+            metric_leaders.append(
+                f"<li><strong>{_escape(label)}:</strong> {_escape(leader[0])} "
+                f"({_escape(f'{leader[1]:.4f}')})</li>"
+            )
+
+    accuracy_leader = _leader(runs, "accuracy")
+    recall_leader = _leader(runs, "recall")
+    precision_leader = _leader(runs, "precision")
+    analysis = []
+    if accuracy_leader and recall_leader:
+        if accuracy_leader[0] == recall_leader[0]:
+            analysis.append(
+                f"{_escape(accuracy_leader[0])} leads both accuracy and recall, "
+                "making it the strongest general-purpose candidate in this comparison."
+            )
+        else:
+            analysis.append(
+                f"Accuracy favors {_escape(accuracy_leader[0])}, while recall favors "
+                f"{_escape(recall_leader[0])}; this exposes a false-alarm versus missed-event trade-off."
+            )
+    if precision_leader and recall_leader and precision_leader[0] != recall_leader[0]:
+        analysis.append(
+            f"{_escape(precision_leader[0])} favors precision, while {_escape(recall_leader[0])} "
+            "favors recall. Choose based on whether false alarms or missed falls cost more."
+        )
+    analysis.append(
+        "For fall detection, review sensitivity, specificity, false-positive rate, and per-participant "
+        "metrics alongside accuracy. Aggregate accuracy alone can hide participant-level failures."
+    )
+    return (
+        "<section class='analysis'><h2>Analysis and summary</h2>"
+        f"<p>{summary}</p><p>{_escape(caution)}</p>"
+        "<h3>Metric leaders</h3><ul>"
+        f"{''.join(metric_leaders) or '<li>No comparable metrics available.</li>'}"
+        "</ul><h3>Human interpretation</h3>"
+        f"<ul>{''.join(f'<li>{item}</li>' for item in analysis)}</ul></section>"
+    )
+
+
 def _report_link(run: ComparisonRun, output_path: Path) -> str:
     if not run.report_path.is_file():
         return "<span>Not available</span>"
@@ -216,6 +296,7 @@ def render_comparison_report(
         body.append("<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>")
 
     details = "".join(_run_details(run, destination) for run in runs)
+    analysis = _analysis_summary(runs, warnings)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -237,6 +318,8 @@ td {{ white-space: pre-wrap; word-break: break-word; }}
 .metadata th {{ width: 24%; }}
 .warnings {{ border-color: #fbbc04; background: #fff8e1; }}
 a {{ color: #1769aa; }}
+.analysis {{ border-color: #8ab4f8; }}
+.analysis li {{ margin: .35rem 0; }}
 summary {{ cursor: pointer; font-weight: 600; }}
 .note {{ color: #5f6368; }}
 </style>
@@ -245,6 +328,7 @@ summary {{ cursor: pointer; font-weight: 600; }}
 <h1>Evaluation comparison</h1>
 <p class="note">Generated from model-agnostic evaluation result artifacts. Metrics use each run's primary evaluation split.</p>
 {warning_html}
+{analysis}
 <section class="comparison">
 <h2>Run comparison</h2>
 <table><thead><tr>{header}</tr></thead><tbody>{''.join(body)}</tbody></table>
