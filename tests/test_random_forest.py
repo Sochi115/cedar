@@ -11,6 +11,7 @@ from evaluation import load_evaluation_result
 from wifall import (
     ImprovedFeatureConfig,
     RandomForestConfig,
+    RandomForestFeatureConfig,
     SplitConfig,
     extract_improved_features,
     extract_random_forest_features,
@@ -81,6 +82,7 @@ def _config(run_id: str = "test-random-forest") -> RandomForestConfig:
         max_features=("sqrt",),
         max_samples=(None,),
         criterion=("gini",),
+        feature_variants=(RandomForestFeatureConfig(),),
         calibration_method="sigmoid",
         random_state=19,
     )
@@ -94,6 +96,38 @@ def test_random_forest_uses_improved_feature_representation(tmp_path: Path) -> N
         extract_random_forest_features(recording, ImprovedFeatureConfig()),
         extract_improved_features(recording, ImprovedFeatureConfig()),
     )
+
+
+def test_random_forest_temporal_feature_variants_are_deterministic(tmp_path: Path) -> None:
+    root = _fixture_dataset(tmp_path)
+    recording = load_recording(discover_recordings(root)[0])
+    config = RandomForestFeatureConfig(
+        name="csi_normalized_temporal_motion_v2",
+        window_count=8,
+        statistics=(
+            "mean",
+            "std",
+            "min",
+            "max",
+            "delta_std",
+            "delta_mean_abs",
+            "slope",
+            "energy",
+            "peak_to_peak",
+            "change_point",
+        ),
+    )
+
+    first = extract_random_forest_features(recording, config)
+    second = extract_random_forest_features(recording, config)
+
+    assert first.shape == (4160,)
+    assert np.isfinite(first).all()
+    np.testing.assert_array_equal(first, second)
+    assert [variant.name for variant in RandomForestConfig().feature_configs()] == [
+        "csi_normalized_temporal_v1",
+        "csi_normalized_temporal_motion_v2",
+    ]
 
 
 def test_random_forest_threshold_policies_are_explicit() -> None:
@@ -138,6 +172,8 @@ def test_random_forest_training_persists_separate_generic_artifacts_and_report(
     }
     assert {"max_samples", "criterion"} <= artifact["model"]["parameters"].keys()
     assert artifact["selection"]["selected"]["selection_metric"] == "f1"
+    assert artifact["selection"]["feature_comparison"][0]["selected"] is True
+    assert artifact["selection"]["feature_comparison"][0]["best_selection_metrics"]["roc_auc"]
     assert artifact["features"]["name"] == "csi_normalized_temporal_v1"
     assert artifact["preprocessing"]["fit_split"] == "train+validation"
     assert artifact["split"]["strategy"] == "participant-held-out"
@@ -185,6 +221,11 @@ def test_random_forest_model_reproduces_test_predictions_and_has_explicit_score_
     assert model.estimator.classes_.tolist() == ["non-fall", "fall"]
     assert model.estimator.calibrator is not None
     assert model.estimator.calibrator.method == "sigmoid"
+    persisted_feature_config = model.feature_config.as_dict()
+    assert persisted_feature_config == {
+        key: artifact["features"][key]
+        for key in ("name", "signal", "window_count", "statistics")
+    }
     assert artifact["evaluations"]["test"]["score_type"] == "decision_function"
     assert artifact["evaluations"]["test"]["scores"]
 

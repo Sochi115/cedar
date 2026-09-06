@@ -29,6 +29,7 @@ from .loader import (
 )
 from .random_forest import (
     RandomForestConfig,
+    RandomForestFeatureConfig,
     RandomForestRun,
     ScoreCalibrator,
     ThresholdedRandomForest,
@@ -58,6 +59,7 @@ __all__ = [
     "ImprovedSvmRun",
     "ImprovedWiFallSvmPipeline",
     "RandomForestConfig",
+    "RandomForestFeatureConfig",
     "RandomForestRun",
     "Recording",
     "RecordingReference",

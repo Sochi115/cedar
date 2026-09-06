@@ -14,25 +14,74 @@ from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
+    average_precision_score,
     balanced_accuracy_score,
     confusion_matrix,
     f1_score,
     precision_score,
     recall_score,
+    roc_auc_score,
 )
 from sklearn.model_selection import LeaveOneGroupOut
 
 from evaluation import evaluate_classifier, render_html_report, save_evaluation_result
 
 from .audit import audit_wifall
-from .improved_svm import (
-    ImprovedFeatureConfig,
-    extract_improved_features,
-)
+from .improved_svm import ImprovedFeatureConfig
 from .loader import DatasetFormatError, Recording, load_split_manifest
 from .training import load_split_records, validate_participant_splits
 
 LABELS = ("non-fall", "fall")
+_BASELINE_STATISTICS = ("mean", "std", "min", "max", "delta_std")
+_MOTION_STATISTICS = _BASELINE_STATISTICS + (
+    "delta_mean_abs",
+    "slope",
+    "energy",
+    "peak_to_peak",
+    "change_point",
+)
+
+
+@dataclass(frozen=True)
+class RandomForestFeatureConfig:
+    """Configurable normalized CSI temporal representation for Random Forest.
+
+    ``window_count`` controls temporal resolution. ``statistics`` controls the
+    ordered per-window features, including baseline summaries and motion
+    features such as slope, energy, and change-point location.
+    """
+
+    name: str = "csi_normalized_temporal_v1"
+    signal: str = "normalized CSI amplitude"
+    window_count: int = 4
+    statistics: tuple[str, ...] = _BASELINE_STATISTICS
+
+    def __post_init__(self) -> None:
+        if self.window_count < 1:
+            raise ValueError("window_count must be at least 1")
+        unsupported = set(self.statistics).difference(
+            _BASELINE_STATISTICS + _MOTION_STATISTICS
+        )
+        if unsupported:
+            raise ValueError(f"Unsupported feature statistics: {sorted(unsupported)}")
+        if len(set(self.statistics)) != len(self.statistics):
+            raise ValueError("statistics must not contain duplicates")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "signal": self.signal,
+            "window_count": self.window_count,
+            "statistics": list(self.statistics),
+        }
+
+
+def _default_motion_feature_config() -> RandomForestFeatureConfig:
+    return RandomForestFeatureConfig(
+        name="csi_normalized_temporal_motion_v2",
+        window_count=8,
+        statistics=_MOTION_STATISTICS,
+    )
 
 
 @dataclass(frozen=True)
@@ -48,7 +97,8 @@ class RandomForestConfig:
     criterion: tuple[str, ...] = ("gini", "entropy")
     class_weight: str = "balanced"
     random_state: int = 42
-    feature: ImprovedFeatureConfig = field(default_factory=ImprovedFeatureConfig)
+    feature: RandomForestFeatureConfig = field(default_factory=RandomForestFeatureConfig)
+    feature_variants: tuple[RandomForestFeatureConfig, ...] = ()
     calibration_method: str = "sigmoid"
     threshold_policy: str = "maximize_grouped_validation_f1_then_sensitivity"
     minimum_recall: float = 0.9
@@ -65,10 +115,18 @@ class RandomForestConfig:
             "class_weight": self.class_weight,
             "random_state": self.random_state,
             "feature": self.feature.as_dict(),
+            "feature_variants": [variant.as_dict() for variant in self.feature_configs()],
             "calibration_method": self.calibration_method,
             "threshold_policy": self.threshold_policy,
             "minimum_recall": self.minimum_recall,
         }
+
+    def feature_configs(self) -> tuple[RandomForestFeatureConfig, ...]:
+        if self.feature_variants:
+            return self.feature_variants
+        if self.feature == RandomForestFeatureConfig():
+            return (self.feature, _default_motion_feature_config())
+        return (self.feature,)
 
 
 @dataclass(frozen=True)
@@ -137,7 +195,7 @@ class WiFallRandomForestPipeline:
     """Persistable improved-feature extraction and thresholded Random Forest."""
 
     estimator: ThresholdedRandomForest
-    feature_config: ImprovedFeatureConfig
+    feature_config: RandomForestFeatureConfig
 
     def features(self, recordings: list[Recording]) -> np.ndarray:
         return np.vstack(
@@ -151,12 +209,77 @@ class WiFallRandomForestPipeline:
         return self.estimator.decision_function(self.features(recordings))
 
 
-def extract_random_forest_features(
-    recording: Recording, config: ImprovedFeatureConfig | None = None
-) -> np.ndarray:
-    """Extract exactly the improved SVM feature representation."""
+def _normalized_amplitude(recording: Recording) -> np.ndarray:
+    amplitude = np.abs(recording.csi).astype(np.float64)
+    center = np.median(amplitude, axis=0)
+    scale = np.median(np.abs(amplitude - center), axis=0)
+    scale[scale < 1e-8] = 1.0
+    return (amplitude - center) / scale
 
-    return extract_improved_features(recording, config)
+
+def _feature_config(
+    config: RandomForestFeatureConfig | ImprovedFeatureConfig | None,
+) -> RandomForestFeatureConfig:
+    if config is None:
+        return RandomForestFeatureConfig()
+    if isinstance(config, RandomForestFeatureConfig):
+        return config
+    return RandomForestFeatureConfig(
+        name=config.name,
+        signal=config.signal,
+        window_count=config.window_count,
+        statistics=config.statistics,
+    )
+
+
+def _window_statistics(window: np.ndarray) -> dict[str, np.ndarray]:
+    subcarriers = window.shape[1]
+    if window.shape[0] == 0:
+        return {
+            statistic: np.zeros(subcarriers)
+            for statistic in _MOTION_STATISTICS
+        }
+    delta = np.diff(window, axis=0)
+    delta_abs = np.abs(delta)
+    if window.shape[0] > 1:
+        positions = np.linspace(-1.0, 1.0, window.shape[0])
+        centered = positions - positions.mean()
+        denominator = float(np.dot(centered, centered))
+        slope = centered @ window / denominator if denominator else np.zeros(subcarriers)
+        change_index = float(np.argmax(delta_abs.mean(axis=1))) / max(delta.shape[0] - 1, 1)
+    else:
+        slope = np.zeros(subcarriers)
+        change_index = 0.0
+    return {
+        "mean": window.mean(axis=0),
+        "std": window.std(axis=0),
+        "min": window.min(axis=0),
+        "max": window.max(axis=0),
+        "delta_std": delta.std(axis=0) if delta.size else np.zeros(subcarriers),
+        "delta_mean_abs": delta_abs.mean(axis=0) if delta_abs.size else np.zeros(subcarriers),
+        "slope": slope,
+        "energy": np.mean(np.square(window), axis=0),
+        "peak_to_peak": window.max(axis=0) - window.min(axis=0),
+        "change_point": np.full(subcarriers, change_index),
+    }
+
+
+def extract_random_forest_features(
+    recording: Recording,
+    config: RandomForestFeatureConfig | ImprovedFeatureConfig | None = None,
+) -> np.ndarray:
+    """Extract normalized temporal CSI features for one recording."""
+
+    feature_config = _feature_config(config)
+    amplitude = _normalized_amplitude(recording)
+    windows = np.array_split(amplitude, feature_config.window_count, axis=0)
+    feature_parts = [
+        np.concatenate(
+            [_window_statistics(window)[statistic] for statistic in feature_config.statistics]
+        )
+        for window in windows
+    ]
+    return np.concatenate(feature_parts).astype(np.float64, copy=False)
 
 
 def _fit_estimator(
@@ -469,12 +592,19 @@ def train_random_forest(
     selection_records = split_records["train"] + split_records["validation"]
     if not selection_records:
         raise DatasetFormatError("Random Forest requires non-test selection recordings")
-    selection_features = np.vstack(
-        [
-            extract_random_forest_features(record, config.feature)
-            for _, _, record in selection_records
-        ]
-    )
+    feature_configs = config.feature_configs()
+    feature_names = [feature_config.name for feature_config in feature_configs]
+    if len(set(feature_names)) != len(feature_names):
+        raise DatasetFormatError("Random Forest feature variant names must be unique")
+    feature_sets = {
+        feature_config.name: np.vstack(
+            [
+                extract_random_forest_features(record, feature_config)
+                for _, _, record in selection_records
+            ]
+        )
+        for feature_config in feature_configs
+    }
     selection_labels = np.asarray(
         [record.target for _, _, record in selection_records], dtype=object
     )
@@ -489,85 +619,104 @@ def train_random_forest(
     )
     candidates: list[dict[str, Any]] = []
     calibrators: list[ScoreCalibrator | None] = []
-    for n_estimators in config.n_estimators:
-        for max_depth in config.max_depth:
-            for min_samples_leaf in config.min_samples_leaf:
-                for max_features in config.max_features:
-                    for max_samples in config.max_samples:
-                        for criterion in config.criterion:
-                            out_of_fold_scores = np.empty(
-                                selection_labels.shape[0], dtype=np.float64
-                            )
-                            for train_indices, validation_indices in folds:
-                                fold_records = [
-                                    selection_records[index] for index in train_indices
-                                ]
-                                fold_weights, _ = _participant_weights(fold_records)
-                                estimator = _fit_estimator(
-                                    selection_features[train_indices],
-                                    selection_labels[train_indices],
-                                    n_estimators=n_estimators,
-                                    max_depth=max_depth,
-                                    min_samples_leaf=min_samples_leaf,
-                                    max_features=max_features,
-                                    max_samples=max_samples,
-                                    criterion=criterion,
-                                    config=config,
-                                    sample_weight=fold_weights,
+    for feature_config in feature_configs:
+        selection_features = feature_sets[feature_config.name]
+        for n_estimators in config.n_estimators:
+            for max_depth in config.max_depth:
+                for min_samples_leaf in config.min_samples_leaf:
+                    for max_features in config.max_features:
+                        for max_samples in config.max_samples:
+                            for criterion in config.criterion:
+                                out_of_fold_scores = np.empty(
+                                    selection_labels.shape[0], dtype=np.float64
                                 )
-                                out_of_fold_scores[validation_indices] = ThresholdedRandomForest(
-                                    estimator, 0.5
-                                ).decision_function(selection_features[validation_indices])
-                            calibrator = _fit_score_calibrator(
-                                out_of_fold_scores,
-                                selection_labels,
-                                config.calibration_method,
-                                config.random_state,
-                            )
-                            calibrated_scores = (
-                                calibrator.transform(out_of_fold_scores)
-                                if calibrator
-                                else out_of_fold_scores
-                            )
-                            threshold, threshold_table = select_random_forest_threshold(
-                                selection_labels,
-                                calibrated_scores,
-                                config.threshold_policy,
-                                config.minimum_recall,
-                            )
-                            candidates.append(
-                                {
-                                    "n_estimators": n_estimators,
-                                    "max_depth": max_depth,
-                                    "min_samples_leaf": min_samples_leaf,
-                                    "max_features": max_features,
-                                    "max_samples": max_samples,
-                                    "criterion": criterion,
-                                    "calibration_method": config.calibration_method,
-                                    "threshold": threshold["threshold"],
-                                    "threshold_metrics": threshold,
-                                    "threshold_table": threshold_table,
-                                    "validation_f1": threshold["f1"],
-                                    "validation_sensitivity": threshold["sensitivity"],
-                                    "selection_metric": (
-                                        "balanced_accuracy"
-                                        if "balanced_accuracy" in config.threshold_policy
-                                        else "accuracy"
-                                        if "recall_constrained" in config.threshold_policy
-                                        else "f1"
-                                    ),
-                                    "selection_metrics": {
-                                        "split": "grouped_validation",
-                                        "f1": threshold["f1"],
-                                        "balanced_accuracy": threshold["balanced_accuracy"],
-                                        "accuracy": threshold["accuracy"],
-                                        "sensitivity": threshold["sensitivity"],
-                                        "false_positive_rate": threshold["false_positive_rate"],
-                                        "minimum_recall": config.minimum_recall,
-                                    },
-                                }
-                            )
-                            calibrators.append(calibrator)
+                                for train_indices, validation_indices in folds:
+                                    fold_records = [
+                                        selection_records[index] for index in train_indices
+                                    ]
+                                    fold_weights, _ = _participant_weights(fold_records)
+                                    estimator = _fit_estimator(
+                                        selection_features[train_indices],
+                                        selection_labels[train_indices],
+                                        n_estimators=n_estimators,
+                                        max_depth=max_depth,
+                                        min_samples_leaf=min_samples_leaf,
+                                        max_features=max_features,
+                                        max_samples=max_samples,
+                                        criterion=criterion,
+                                        config=config,
+                                        sample_weight=fold_weights,
+                                    )
+                                    out_of_fold_scores[validation_indices] = ThresholdedRandomForest(
+                                        estimator, 0.5
+                                    ).decision_function(selection_features[validation_indices])
+                                calibrator = _fit_score_calibrator(
+                                    out_of_fold_scores,
+                                    selection_labels,
+                                    config.calibration_method,
+                                    config.random_state,
+                                )
+                                calibrated_scores = (
+                                    calibrator.transform(out_of_fold_scores)
+                                    if calibrator
+                                    else out_of_fold_scores
+                                )
+                                threshold, threshold_table = select_random_forest_threshold(
+                                    selection_labels,
+                                    calibrated_scores,
+                                    config.threshold_policy,
+                                    config.minimum_recall,
+                                )
+                                selection_roc_auc = float(
+                                    roc_auc_score(
+                                        selection_labels == "fall", calibrated_scores
+                                    )
+                                )
+                                selection_pr_auc = float(
+                                    average_precision_score(
+                                        selection_labels == "fall", calibrated_scores
+                                    )
+                                )
+                                candidates.append(
+                                    {
+                                        "feature": feature_config.as_dict(),
+                                        "feature_name": feature_config.name,
+                                        "n_estimators": n_estimators,
+                                        "max_depth": max_depth,
+                                        "min_samples_leaf": min_samples_leaf,
+                                        "max_features": max_features,
+                                        "max_samples": max_samples,
+                                        "criterion": criterion,
+                                        "calibration_method": config.calibration_method,
+                                        "threshold": threshold["threshold"],
+                                        "threshold_metrics": threshold,
+                                        "threshold_table": threshold_table,
+                                        "validation_f1": threshold["f1"],
+                                        "validation_sensitivity": threshold["sensitivity"],
+                                        "selection_metric": (
+                                            "balanced_accuracy"
+                                            if "balanced_accuracy" in config.threshold_policy
+                                            else "accuracy"
+                                            if "recall_constrained" in config.threshold_policy
+                                            else "f1"
+                                        ),
+                                        "selection_metrics": {
+                                            "split": "grouped_validation",
+                                            "accuracy": threshold["accuracy"],
+                                            "balanced_accuracy": threshold["balanced_accuracy"],
+                                            "precision": threshold["precision"],
+                                            "recall": threshold["sensitivity"],
+                                            "f1": threshold["f1"],
+                                            "sensitivity": threshold["sensitivity"],
+                                            "specificity": threshold["specificity"],
+                                            "false_positive_rate": threshold["false_positive_rate"],
+                                            "roc_auc": selection_roc_auc,
+                                            "pr_auc": selection_pr_auc,
+                                            "minimum_recall": config.minimum_recall,
+                                        },
+                                    }
+                                )
+                                calibrators.append(calibrator)
 
     if not candidates:
         raise DatasetFormatError("Random Forest configuration produced no candidates")
@@ -577,9 +726,15 @@ def train_random_forest(
     )
     selected = candidates[selected_index]
     selected_calibrator = calibrators[selected_index]
+    selected_feature_config = next(
+        feature_config
+        for feature_config in feature_configs
+        if feature_config.name == selected["feature_name"]
+    )
+    selected_features = feature_sets[selected_feature_config.name]
     final_weights, _ = _participant_weights(selection_records)
     final_estimator = _fit_estimator(
-        selection_features,
+        selected_features,
         selection_labels,
         n_estimators=selected["n_estimators"],
         max_depth=selected["max_depth"],
@@ -595,7 +750,7 @@ def train_random_forest(
         selected["threshold"],
         calibrator=selected_calibrator,
     )
-    feature_pipeline = WiFallRandomForestPipeline(thresholded, config.feature)
+    feature_pipeline = WiFallRandomForestPipeline(thresholded, selected_feature_config)
     model_path = output / "model.joblib"
     joblib.dump(feature_pipeline, model_path)
 
@@ -631,11 +786,13 @@ def train_random_forest(
             "source": "RandomForestClassifier.predict_proba",
         },
     }
-    feature_metadata = config.feature.as_dict() | {"count": int(selection_features.shape[1])}
+    feature_metadata = selected_feature_config.as_dict() | {
+        "count": int(selected_features.shape[1])
+    }
     preprocessing_metadata = {
         "steps": [
             "per-recording CSI amplitude median/MAD normalization",
-            "four temporal windows",
+            f"{selected_feature_config.window_count} temporal windows",
             "RandomForestClassifier with participant-balanced sample weights",
             f"{config.calibration_method} score calibration",
         ],
@@ -665,7 +822,10 @@ def train_random_forest(
         if not records:
             continue
         features = np.vstack(
-            [extract_random_forest_features(record, config.feature) for _, _, record in records]
+            [
+                extract_random_forest_features(record, selected_feature_config)
+                for _, _, record in records
+            ]
         )
         labels = np.asarray([record.target for _, _, record in records], dtype=object)
         evaluation_result = evaluate_classifier(
@@ -698,6 +858,28 @@ def train_random_forest(
 
     primary_split = "test" if "test" in evaluations else "validation"
     primary = evaluations[primary_split]
+    feature_comparison = []
+    for feature_config in feature_configs:
+        variant_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate["feature_name"] == feature_config.name
+        ]
+        best_variant = max(
+            variant_candidates,
+            key=lambda candidate: _candidate_selection_key(
+                candidate, config.threshold_policy
+            ),
+        )
+        feature_comparison.append(
+            {
+                "name": feature_config.name,
+                "feature": feature_config.as_dict(),
+                "candidate_count": len(variant_candidates),
+                "best_selection_metrics": best_variant["selection_metrics"],
+                "selected": best_variant is selected,
+            }
+        )
     artifact = evaluation_artifacts[primary_split] | {
         "evaluation_split": primary_split,
         "evaluations": evaluations,
@@ -707,6 +889,7 @@ def train_random_forest(
         "selection": {
             "candidates": candidates,
             "selected": selected,
+            "feature_comparison": feature_comparison,
             "selection_split": "grouped_validation",
             "protocol": selection_protocol,
         },

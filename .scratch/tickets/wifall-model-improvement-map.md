@@ -19,6 +19,7 @@ Improve WiFall fall detection with a separate SVM training pipeline, train a sep
 
 - [Build separate improved WiFall SVM training pipeline](completed/wifall-model-improvement-01-improved-svm.md)
 - [Train separate WiFall Random Forest model](completed/wifall-model-improvement-02-random-forest.md)
+- [Upgrade temporal CSI feature representation](completed/wifall-model-improvement-05-temporal-features.md)
 - [Compare baseline, improved SVM, and Random Forest runs](wifall-svm-report-04-compare-runs.md)
 
 ## Decisions so far
@@ -29,4 +30,5 @@ Improve WiFall fall detection with a separate SVM training pipeline, train a sep
 - Ticket 02 uses Random Forest.
 - Generic validation and static reporting remain model-independent.
 - Test participants remain untouched during feature, parameter, and threshold selection.
+- [Upgrade temporal CSI feature representation](completed/wifall-model-improvement-05-temporal-features.md): Random Forest now compares baseline four-window features with an eight-window motion representation under grouped non-test validation.
 - [Train separate WiFall Random Forest model](completed/wifall-model-improvement-02-random-forest.md): Separate Random Forest training now persists model, audit, generic result, and HTML report artifacts using the improved feature representation and validation-only selection.

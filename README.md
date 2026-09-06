@@ -177,7 +177,7 @@ data/processed/wifall/random-forest-run/
 └── run.json
 ```
 
-Random Forest parameters are selected from a regularized search, and fall scores are sigmoid-calibrated before threshold selection. Leave-one-participant-out validation covers training and validation participants with equal participant contribution. Test participants are evaluated once for final aggregate and per-participant metrics.
+Random Forest parameters are selected from a regularized search, and fall scores are sigmoid-calibrated before threshold selection. Feature selection compares the four-window baseline with an eight-window motion representation containing delta magnitude, slope, energy, peak-to-peak, and change-point features. Leave-one-participant-out validation covers training and validation participants with equal participant contribution. Test participants are evaluated once for final aggregate and per-participant metrics.
 
 ## 7. Generate static HTML report
 
