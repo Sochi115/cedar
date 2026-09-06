@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,7 @@ from wifall import (
     train_random_forest,
 )
 from wifall.loader import discover_recordings, load_recording
+from wifall.random_forest import select_random_forest_threshold
 
 HEADER = ["type", "seq", "timestamp", "taget", "rssi", "data"]
 
@@ -77,6 +79,9 @@ def _config(run_id: str = "test-random-forest") -> RandomForestConfig:
         max_depth=(None,),
         min_samples_leaf=(1,),
         max_features=("sqrt",),
+        max_samples=(None,),
+        criterion=("gini",),
+        calibration_method="sigmoid",
         random_state=19,
     )
 
@@ -89,6 +94,21 @@ def test_random_forest_uses_improved_feature_representation(tmp_path: Path) -> N
         extract_random_forest_features(recording, ImprovedFeatureConfig()),
         extract_improved_features(recording, ImprovedFeatureConfig()),
     )
+
+
+def test_random_forest_threshold_policies_are_explicit() -> None:
+    labels = np.asarray(["fall", "fall", "non-fall", "non-fall"], dtype=object)
+    scores = np.asarray([0.8, 0.6, 0.4, 0.2])
+
+    for policy in (
+        "maximize_grouped_validation_f1_then_sensitivity",
+        "maximize_grouped_validation_balanced_accuracy_then_sensitivity",
+        "maximize_grouped_validation_recall_constrained_accuracy",
+    ):
+        selected, table = select_random_forest_threshold(labels, scores, policy, 1.0)
+
+        assert np.isfinite(selected["threshold"])
+        assert table
 
 
 def test_random_forest_training_persists_separate_generic_artifacts_and_report(
@@ -111,6 +131,13 @@ def test_random_forest_training_persists_separate_generic_artifacts_and_report(
     assert artifact["model"]["training_code"] == "wifall.random_forest"
     assert artifact["model"]["decision_threshold"] == artifact["selection"]["selected"]["threshold"]
     assert artifact["model"]["threshold_policy"] == "maximize_grouped_validation_f1_then_sensitivity"
+    assert artifact["model"]["calibration"] == {
+        "method": "sigmoid",
+        "fit_split": "grouped_validation_oof",
+        "positive_label": "fall",
+    }
+    assert {"max_samples", "criterion"} <= artifact["model"]["parameters"].keys()
+    assert artifact["selection"]["selected"]["selection_metric"] == "f1"
     assert artifact["features"]["name"] == "csi_normalized_temporal_v1"
     assert artifact["preprocessing"]["fit_split"] == "train+validation"
     assert artifact["split"]["strategy"] == "participant-held-out"
@@ -133,7 +160,7 @@ def test_random_forest_training_persists_separate_generic_artifacts_and_report(
             round(values["recordings"] * values["weight_per_recording"], 8)
             for values in fold["participant_weights"].values()
         }
-        assert contributions == {1.0}
+        assert len(contributions) == 1
     assert set(artifact["evaluations"]) == {"train", "validation", "test"}
     assert artifact["evaluations"]["test"]["participant_metrics"]
     assert "random_forest" in run.report_path.read_text(encoding="utf-8")
@@ -156,8 +183,35 @@ def test_random_forest_model_reproduces_test_predictions_and_has_explicit_score_
     assert predictions.tolist() == artifact["evaluations"]["test"]["y_pred"]
     assert model.estimator.positive_label == "fall"
     assert model.estimator.classes_.tolist() == ["non-fall", "fall"]
+    assert model.estimator.calibrator is not None
+    assert model.estimator.calibrator.method == "sigmoid"
     assert artifact["evaluations"]["test"]["score_type"] == "decision_function"
     assert artifact["evaluations"]["test"]["scores"]
+
+
+def test_tuned_random_forest_remains_comparable_to_uncalibrated_baseline(
+    tmp_path: Path,
+) -> None:
+    root = _fixture_dataset(tmp_path)
+    manifest_path = _fixture_manifest(root, tmp_path)
+    baseline = train_random_forest(
+        root,
+        manifest_path,
+        tmp_path / "baseline",
+        replace(_config("baseline"), calibration_method="none"),
+    )
+    tuned = train_random_forest(
+        root,
+        manifest_path,
+        tmp_path / "tuned",
+        replace(_config("tuned"), max_depth=(None, 4)),
+    )
+
+    assert baseline.artifact["model"]["calibration"]["method"] == "none"
+    assert tuned.artifact["model"]["calibration"]["method"] == "sigmoid"
+    assert baseline.artifact["split"]["participants"] == tuned.artifact["split"]["participants"]
+    assert baseline.artifact_path != tuned.artifact_path
+    assert len(tuned.artifact["selection"]["candidates"]) == 2
 
 
 def test_random_forest_selection_and_artifact_are_reproducible(tmp_path: Path) -> None:

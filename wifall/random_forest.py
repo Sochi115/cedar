@@ -10,6 +10,16 @@ from typing import Any
 import joblib
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+)
 from sklearn.model_selection import LeaveOneGroupOut
 
 from evaluation import evaluate_classifier, render_html_report, save_evaluation_result
@@ -18,7 +28,6 @@ from .audit import audit_wifall
 from .improved_svm import (
     ImprovedFeatureConfig,
     extract_improved_features,
-    select_threshold,
 )
 from .loader import DatasetFormatError, Recording, load_split_manifest
 from .training import load_split_records, validate_participant_splits
@@ -32,13 +41,17 @@ class RandomForestConfig:
 
     run_id: str = "wifall-random-forest"
     n_estimators: tuple[int, ...] = (100,)
-    max_depth: tuple[int | None, ...] = (None, 20)
-    min_samples_leaf: tuple[int, ...] = (1,)
+    max_depth: tuple[int | None, ...] = (None, 16)
+    min_samples_leaf: tuple[int, ...] = (1, 4)
     max_features: tuple[str | float | None, ...] = ("sqrt",)
+    max_samples: tuple[float | None, ...] = (None, 0.75)
+    criterion: tuple[str, ...] = ("gini", "entropy")
     class_weight: str = "balanced"
     random_state: int = 42
     feature: ImprovedFeatureConfig = field(default_factory=ImprovedFeatureConfig)
+    calibration_method: str = "sigmoid"
     threshold_policy: str = "maximize_grouped_validation_f1_then_sensitivity"
+    minimum_recall: float = 0.9
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -47,10 +60,14 @@ class RandomForestConfig:
             "max_depth": list(self.max_depth),
             "min_samples_leaf": list(self.min_samples_leaf),
             "max_features": list(self.max_features),
+            "max_samples": list(self.max_samples),
+            "criterion": list(self.criterion),
             "class_weight": self.class_weight,
             "random_state": self.random_state,
             "feature": self.feature.as_dict(),
+            "calibration_method": self.calibration_method,
             "threshold_policy": self.threshold_policy,
+            "minimum_recall": self.minimum_recall,
         }
 
 
@@ -66,11 +83,28 @@ class RandomForestRun:
 
 
 @dataclass
+class ScoreCalibrator:
+    """Persistable calibration model for positive-class Random Forest scores."""
+
+    method: str
+    estimator: LogisticRegression | IsotonicRegression
+
+    def transform(self, scores: np.ndarray) -> np.ndarray:
+        values = np.asarray(scores, dtype=float)
+        if self.method == "sigmoid":
+            return self.estimator.predict_proba(values.reshape(-1, 1))[:, 1]
+        if self.method == "isotonic":
+            return np.asarray(self.estimator.predict(values), dtype=float)
+        raise DatasetFormatError(f"Unsupported score calibration method: {self.method!r}")
+
+
+@dataclass
 class ThresholdedRandomForest:
-    """Persistable Random Forest wrapper with fall-probability scores."""
+    """Persistable Random Forest wrapper with calibrated fall-probability scores."""
 
     estimator: RandomForestClassifier
     threshold: float
+    calibrator: ScoreCalibrator | None = None
     positive_label: str = "fall"
     negative_label: str = "non-fall"
     classes_: np.ndarray = field(default_factory=lambda: np.asarray(LABELS))
@@ -84,18 +118,14 @@ class ThresholdedRandomForest:
             positive_index = estimator_classes.index(self.positive_label)
         except ValueError as error:
             raise DatasetFormatError("Random Forest has no fall class") from error
-        return probabilities[:, positive_index]
+        scores = probabilities[:, positive_index]
+        return self.calibrator.transform(scores) if self.calibrator else scores
 
     def predict_proba(self, features: np.ndarray) -> np.ndarray:
         """Return probabilities in the stable ``non-fall``, ``fall`` order."""
 
-        probabilities = np.asarray(self.estimator.predict_proba(features), dtype=float)
-        estimator_classes = [str(value) for value in self.estimator.classes_]
-        try:
-            indexes = [estimator_classes.index(label) for label in LABELS]
-        except ValueError as error:
-            raise DatasetFormatError("Random Forest classes do not match WiFall labels") from error
-        return probabilities[:, indexes]
+        scores = self.decision_function(features)
+        return np.column_stack((1.0 - scores, scores))
 
     def predict(self, features: np.ndarray) -> np.ndarray:
         scores = self.decision_function(features)
@@ -137,6 +167,8 @@ def _fit_estimator(
     max_depth: int | None,
     min_samples_leaf: int,
     max_features: str | float | None,
+    max_samples: float | None,
+    criterion: str,
     config: RandomForestConfig,
     sample_weight: np.ndarray | None = None,
 ) -> RandomForestClassifier:
@@ -145,6 +177,8 @@ def _fit_estimator(
         max_depth=max_depth,
         min_samples_leaf=min_samples_leaf,
         max_features=max_features,
+        max_samples=max_samples,
+        criterion=criterion,
         class_weight=config.class_weight,
         random_state=config.random_state,
         n_jobs=1,
@@ -159,14 +193,16 @@ def _participant_weights(
     counts: dict[str, int] = {}
     for participant, _, _ in records:
         counts[participant] = counts.get(participant, 0) + 1
+    scale = len(records) / len(counts)
     weights = np.asarray(
-        [1.0 / counts[participant] for participant, _, _ in records],
+        [scale / counts[participant] for participant, _, _ in records],
         dtype=np.float64,
     )
     metadata = {
         participant: {
             "recordings": count,
-            "weight_per_recording": 1.0 / count,
+            "weight_per_recording": scale / count,
+            "total_weight": scale,
         }
         for participant, count in sorted(counts.items())
     }
@@ -221,6 +257,137 @@ def _selection_protocol(
         "final_fit_participant_weights": final_weights,
         "folds": fold_metadata,
     }
+
+
+def _threshold_candidates(scores: np.ndarray) -> np.ndarray:
+    values = np.unique(np.asarray(scores, dtype=float))
+    if values.size == 1:
+        margin = max(abs(float(values[0])) * 1e-6, 1e-6)
+        return np.asarray([values[0] - margin, values[0], values[0] + margin])
+    midpoints = (values[:-1] + values[1:]) / 2
+    margin = max(abs(float(values[0])) * 1e-6, 1e-6)
+    return np.concatenate(([values[0] - margin], midpoints, [values[-1] + margin]))
+
+
+def _threshold_metrics(
+    labels: np.ndarray, scores: np.ndarray, threshold: float
+) -> dict[str, float]:
+    predictions = np.where(scores >= threshold, "fall", "non-fall")
+    matrix = confusion_matrix(labels, predictions, labels=LABELS)
+    true_negative, false_positive, false_negative, true_positive = matrix.ravel()
+    negative_total = true_negative + false_positive
+    return {
+        "threshold": float(threshold),
+        "accuracy": float(accuracy_score(labels, predictions)),
+        "balanced_accuracy": float(balanced_accuracy_score(labels, predictions)),
+        "f1": float(f1_score(labels, predictions, pos_label="fall", zero_division=0)),
+        "sensitivity": float(
+            recall_score(labels, predictions, pos_label="fall", zero_division=0)
+        ),
+        "specificity": float(true_negative / negative_total) if negative_total else 0.0,
+        "precision": float(
+            precision_score(labels, predictions, pos_label="fall", zero_division=0)
+        ),
+        "false_positive_rate": float(false_positive / negative_total)
+        if negative_total
+        else 0.0,
+        "support": float(true_negative + false_positive + false_negative + true_positive),
+    }
+
+
+def select_random_forest_threshold(
+    labels: np.ndarray,
+    scores: np.ndarray,
+    policy: str,
+    minimum_recall: float = 0.9,
+) -> tuple[dict[str, float], list[dict[str, float]]]:
+    """Select threshold using an explicit grouped-validation objective."""
+
+    if not 0.0 <= minimum_recall <= 1.0:
+        raise ValueError("minimum_recall must be between 0 and 1")
+    candidates = [
+        _threshold_metrics(labels, scores, threshold)
+        for threshold in _threshold_candidates(scores)
+    ]
+    if policy in {"maximize_f1_then_sensitivity", "maximize_grouped_validation_f1_then_sensitivity"}:
+        selected = max(
+            candidates,
+            key=lambda result: (
+                result["f1"],
+                result["sensitivity"],
+                -result["false_positive_rate"],
+            ),
+        )
+    elif policy in {
+        "maximize_balanced_accuracy_then_sensitivity",
+        "maximize_grouped_validation_balanced_accuracy_then_sensitivity",
+    }:
+        selected = max(
+            candidates,
+            key=lambda result: (
+                result["balanced_accuracy"],
+                result["sensitivity"],
+                -result["false_positive_rate"],
+            ),
+        )
+    elif policy in {
+        "maximize_recall_constrained_accuracy",
+        "maximize_grouped_validation_recall_constrained_accuracy",
+    }:
+        eligible = [
+            result for result in candidates if result["sensitivity"] >= minimum_recall
+        ]
+        selected = max(
+            eligible or candidates,
+            key=lambda result: (
+                result["accuracy"],
+                result["sensitivity"],
+                -result["false_positive_rate"],
+            ),
+        )
+    else:
+        raise ValueError(f"Unsupported threshold policy: {policy!r}")
+    return selected, candidates
+
+
+def _candidate_selection_key(
+    candidate: dict[str, Any], policy: str
+) -> tuple[float, float, float]:
+    if "balanced_accuracy" in policy:
+        primary = candidate["threshold_metrics"]["balanced_accuracy"]
+    elif "recall_constrained" in policy:
+        primary = candidate["threshold_metrics"]["accuracy"]
+    else:
+        primary = candidate["threshold_metrics"]["f1"]
+    return (
+        primary,
+        candidate["threshold_metrics"]["sensitivity"],
+        -candidate["threshold_metrics"]["false_positive_rate"],
+    )
+
+
+def _fit_score_calibrator(
+    scores: np.ndarray,
+    labels: np.ndarray,
+    method: str,
+    random_state: int,
+) -> ScoreCalibrator | None:
+    if method == "none":
+        return None
+    binary_labels = (labels == "fall").astype(np.int8)
+    if method == "sigmoid":
+        estimator: LogisticRegression | IsotonicRegression = LogisticRegression(
+            C=1.0,
+            solver="lbfgs",
+            random_state=random_state,
+        )
+        estimator.fit(scores.reshape(-1, 1), binary_labels)
+    elif method == "isotonic":
+        estimator = IsotonicRegression(out_of_bounds="clip")
+        estimator.fit(scores, binary_labels)
+    else:
+        raise ValueError(f"Unsupported score calibration method: {method!r}")
+    return ScoreCalibrator(method, estimator)
 
 
 def _participant_results(
@@ -321,60 +488,95 @@ def train_random_forest(
         folds,
     )
     candidates: list[dict[str, Any]] = []
+    calibrators: list[ScoreCalibrator | None] = []
     for n_estimators in config.n_estimators:
         for max_depth in config.max_depth:
             for min_samples_leaf in config.min_samples_leaf:
                 for max_features in config.max_features:
-                    out_of_fold_scores = np.empty(selection_labels.shape[0], dtype=np.float64)
-                    for train_indices, validation_indices in folds:
-                        fold_records = [selection_records[index] for index in train_indices]
-                        fold_weights, _ = _participant_weights(fold_records)
-                        estimator = _fit_estimator(
-                            selection_features[train_indices],
-                            selection_labels[train_indices],
-                            n_estimators=n_estimators,
-                            max_depth=max_depth,
-                            min_samples_leaf=min_samples_leaf,
-                            max_features=max_features,
-                            config=config,
-                            sample_weight=fold_weights,
-                        )
-                        out_of_fold_scores[validation_indices] = ThresholdedRandomForest(
-                            estimator, 0.5
-                        ).decision_function(selection_features[validation_indices])
-                    threshold, threshold_table = select_threshold(
-                        selection_labels, out_of_fold_scores
-                    )
-                    candidates.append(
-                        {
-                            "n_estimators": n_estimators,
-                            "max_depth": max_depth,
-                            "min_samples_leaf": min_samples_leaf,
-                            "max_features": max_features,
-                            "threshold": threshold.threshold,
-                            "threshold_metrics": threshold.as_dict(),
-                            "threshold_table": threshold_table,
-                            "validation_f1": threshold.f1,
-                            "validation_sensitivity": threshold.sensitivity,
-                            "selection_metrics": {
-                                "split": "grouped_validation",
-                                "f1": threshold.f1,
-                                "sensitivity": threshold.sensitivity,
-                                "false_positive_rate": threshold.false_positive_rate,
-                            },
-                        }
-                    )
+                    for max_samples in config.max_samples:
+                        for criterion in config.criterion:
+                            out_of_fold_scores = np.empty(
+                                selection_labels.shape[0], dtype=np.float64
+                            )
+                            for train_indices, validation_indices in folds:
+                                fold_records = [
+                                    selection_records[index] for index in train_indices
+                                ]
+                                fold_weights, _ = _participant_weights(fold_records)
+                                estimator = _fit_estimator(
+                                    selection_features[train_indices],
+                                    selection_labels[train_indices],
+                                    n_estimators=n_estimators,
+                                    max_depth=max_depth,
+                                    min_samples_leaf=min_samples_leaf,
+                                    max_features=max_features,
+                                    max_samples=max_samples,
+                                    criterion=criterion,
+                                    config=config,
+                                    sample_weight=fold_weights,
+                                )
+                                out_of_fold_scores[validation_indices] = ThresholdedRandomForest(
+                                    estimator, 0.5
+                                ).decision_function(selection_features[validation_indices])
+                            calibrator = _fit_score_calibrator(
+                                out_of_fold_scores,
+                                selection_labels,
+                                config.calibration_method,
+                                config.random_state,
+                            )
+                            calibrated_scores = (
+                                calibrator.transform(out_of_fold_scores)
+                                if calibrator
+                                else out_of_fold_scores
+                            )
+                            threshold, threshold_table = select_random_forest_threshold(
+                                selection_labels,
+                                calibrated_scores,
+                                config.threshold_policy,
+                                config.minimum_recall,
+                            )
+                            candidates.append(
+                                {
+                                    "n_estimators": n_estimators,
+                                    "max_depth": max_depth,
+                                    "min_samples_leaf": min_samples_leaf,
+                                    "max_features": max_features,
+                                    "max_samples": max_samples,
+                                    "criterion": criterion,
+                                    "calibration_method": config.calibration_method,
+                                    "threshold": threshold["threshold"],
+                                    "threshold_metrics": threshold,
+                                    "threshold_table": threshold_table,
+                                    "validation_f1": threshold["f1"],
+                                    "validation_sensitivity": threshold["sensitivity"],
+                                    "selection_metric": (
+                                        "balanced_accuracy"
+                                        if "balanced_accuracy" in config.threshold_policy
+                                        else "accuracy"
+                                        if "recall_constrained" in config.threshold_policy
+                                        else "f1"
+                                    ),
+                                    "selection_metrics": {
+                                        "split": "grouped_validation",
+                                        "f1": threshold["f1"],
+                                        "balanced_accuracy": threshold["balanced_accuracy"],
+                                        "accuracy": threshold["accuracy"],
+                                        "sensitivity": threshold["sensitivity"],
+                                        "false_positive_rate": threshold["false_positive_rate"],
+                                        "minimum_recall": config.minimum_recall,
+                                    },
+                                }
+                            )
+                            calibrators.append(calibrator)
 
     if not candidates:
         raise DatasetFormatError("Random Forest configuration produced no candidates")
-    selected = max(
-        candidates,
-        key=lambda candidate: (
-            candidate["validation_f1"],
-            candidate["validation_sensitivity"],
-            -candidate["threshold_metrics"]["false_positive_rate"],
-        ),
+    selected_index = max(
+        range(len(candidates)),
+        key=lambda index: _candidate_selection_key(candidates[index], config.threshold_policy),
     )
+    selected = candidates[selected_index]
+    selected_calibrator = calibrators[selected_index]
     final_weights, _ = _participant_weights(selection_records)
     final_estimator = _fit_estimator(
         selection_features,
@@ -383,10 +585,16 @@ def train_random_forest(
         max_depth=selected["max_depth"],
         min_samples_leaf=selected["min_samples_leaf"],
         max_features=selected["max_features"],
+        max_samples=selected["max_samples"],
+        criterion=selected["criterion"],
         config=config,
         sample_weight=final_weights,
     )
-    thresholded = ThresholdedRandomForest(final_estimator, selected["threshold"])
+    thresholded = ThresholdedRandomForest(
+        final_estimator,
+        selected["threshold"],
+        calibrator=selected_calibrator,
+    )
     feature_pipeline = WiFallRandomForestPipeline(thresholded, config.feature)
     model_path = output / "model.joblib"
     joblib.dump(feature_pipeline, model_path)
@@ -401,12 +609,20 @@ def train_random_forest(
             "max_depth": selected["max_depth"],
             "min_samples_leaf": selected["min_samples_leaf"],
             "max_features": selected["max_features"],
+            "max_samples": selected["max_samples"],
+            "criterion": selected["criterion"],
             "class_weight": config.class_weight,
             "random_state": config.random_state,
             "n_jobs": 1,
         },
         "decision_threshold": selected["threshold"],
         "threshold_policy": config.threshold_policy,
+        "minimum_recall": config.minimum_recall,
+        "calibration": {
+            "method": config.calibration_method,
+            "fit_split": "grouped_validation_oof",
+            "positive_label": "fall",
+        },
         "fit_splits": ["train", "validation"],
         "fit_participants": selection_protocol["participants"],
         "score_orientation": {
@@ -420,7 +636,8 @@ def train_random_forest(
         "steps": [
             "per-recording CSI amplitude median/MAD normalization",
             "four temporal windows",
-            "RandomForestClassifier",
+            "RandomForestClassifier with participant-balanced sample weights",
+            f"{config.calibration_method} score calibration",
         ],
         "fit_split": "train+validation",
     }

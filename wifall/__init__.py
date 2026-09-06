@@ -30,10 +30,12 @@ from .loader import (
 from .random_forest import (
     RandomForestConfig,
     RandomForestRun,
+    ScoreCalibrator,
     ThresholdedRandomForest,
     WiFallRandomForestPipeline,
     extract_random_forest_features,
     load_random_forest,
+    select_random_forest_threshold,
     train_random_forest,
 )
 from .svm import (
@@ -60,6 +62,7 @@ __all__ = [
     "Recording",
     "RecordingReference",
     "RecordingSummary",
+    "ScoreCalibrator",
     "SplitConfig",
     "SvmConfig",
     "SvmRun",
@@ -79,6 +82,7 @@ __all__ = [
     "load_trained_svm",
     "parse_csi_field",
     "save_split_manifest",
+    "select_random_forest_threshold",
     "select_threshold",
     "summarize_dataset",
     "train_improved_svm",
