@@ -13,6 +13,7 @@ from .loader import (
     save_split_manifest,
     summarize_dataset,
 )
+from .random_forest import train_random_forest
 from .svm import train_svm
 
 
@@ -41,6 +42,13 @@ def _build_parser() -> argparse.ArgumentParser:
     improved.add_argument("dataset_root", type=Path)
     improved.add_argument("split_manifest", type=Path)
     improved.add_argument("output_dir", type=Path)
+
+    random_forest = subparsers.add_parser(
+        "train-random-forest", help="train and evaluate the Random Forest"
+    )
+    random_forest.add_argument("dataset_root", type=Path)
+    random_forest.add_argument("split_manifest", type=Path)
+    random_forest.add_argument("output_dir", type=Path)
     return parser
 
 
@@ -69,7 +77,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote run artifact: {run.artifact_path}")
         return 0
 
-    run = train_improved_svm(args.dataset_root, args.split_manifest, args.output_dir)
+    if args.command == "train-improved-svm":
+        run = train_improved_svm(args.dataset_root, args.split_manifest, args.output_dir)
+        print(f"Wrote model: {run.model_path}")
+        print(f"Wrote audit: {run.audit_path}")
+        print(f"Wrote run artifact: {run.artifact_path}")
+        print(f"Wrote report: {run.report_path}")
+        return 0
+
+    run = train_random_forest(args.dataset_root, args.split_manifest, args.output_dir)
     print(f"Wrote model: {run.model_path}")
     print(f"Wrote audit: {run.audit_path}")
     print(f"Wrote run artifact: {run.artifact_path}")

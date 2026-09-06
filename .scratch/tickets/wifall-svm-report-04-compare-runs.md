@@ -3,7 +3,7 @@
 Status: open
 Type: task
 Label: ready-for-agent
-Blocked by: completed/wifall-model-improvement-01-improved-svm.md, wifall-model-improvement-02-random-forest.md
+Blocked by: completed/wifall-model-improvement-01-improved-svm.md, completed/wifall-model-improvement-02-random-forest.md
 
 ## What to build
 

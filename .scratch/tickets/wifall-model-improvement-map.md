@@ -18,7 +18,7 @@ Improve WiFall fall detection with a separate SVM training pipeline, train a sep
 ## Tickets
 
 - [Build separate improved WiFall SVM training pipeline](completed/wifall-model-improvement-01-improved-svm.md)
-- [Train separate WiFall Random Forest model](wifall-model-improvement-02-random-forest.md)
+- [Train separate WiFall Random Forest model](completed/wifall-model-improvement-02-random-forest.md)
 - [Compare baseline, improved SVM, and Random Forest runs](wifall-svm-report-04-compare-runs.md)
 
 ## Decisions so far
@@ -29,3 +29,4 @@ Improve WiFall fall detection with a separate SVM training pipeline, train a sep
 - Ticket 02 uses Random Forest.
 - Generic validation and static reporting remain model-independent.
 - Test participants remain untouched during feature, parameter, and threshold selection.
+- [Train separate WiFall Random Forest model](completed/wifall-model-improvement-02-random-forest.md): Separate Random Forest training now persists model, audit, generic result, and HTML report artifacts using the improved feature representation and validation-only selection.
