@@ -197,6 +197,27 @@ def _analysis_summary(runs: tuple[ComparisonRun, ...], warnings: list[str]) -> s
                 f"({_escape(f'{leader[1]:.4f}')})</li>"
             )
 
+    window_groups: dict[str, list[ComparisonRun]] = {}
+    for run in runs:
+        features = run.result.get("features", {})
+        window_count = features.get("window_count") if isinstance(features, dict) else None
+        window_groups.setdefault(str(window_count or "Not available"), []).append(run)
+    window_analysis = []
+    for window_count, window_runs in sorted(window_groups.items()):
+        leader = _leader(tuple(window_runs), "f1")
+        run_names = ", ".join(_run_label(run) for run in window_runs)
+        if leader:
+            window_analysis.append(
+                f"<li><strong>{_escape(window_count)} windows:</strong> best F1 "
+                f"is {_escape(f'{leader[1]:.4f}')} ({_escape(leader[0])}); "
+                f"runs: {_escape(run_names)}</li>"
+            )
+        else:
+            window_analysis.append(
+                f"<li><strong>{_escape(window_count)} windows:</strong> "
+                f"runs: {_escape(run_names)}</li>"
+            )
+
     accuracy_leader = _leader(runs, "accuracy")
     recall_leader = _leader(runs, "recall")
     precision_leader = _leader(runs, "precision")
@@ -226,6 +247,8 @@ def _analysis_summary(runs: tuple[ComparisonRun, ...], warnings: list[str]) -> s
         f"<p>{summary}</p><p>{_escape(caution)}</p>"
         "<h3>Metric leaders</h3><ul>"
         f"{''.join(metric_leaders) or '<li>No comparable metrics available.</li>'}"
+        "</ul><h3>Window-size analysis</h3><ul>"
+        f"{''.join(window_analysis) or '<li>Window size not recorded.</li>'}"
         "</ul><h3>Human interpretation</h3>"
         f"<ul>{''.join(f'<li>{item}</li>' for item in analysis)}</ul></section>"
     )

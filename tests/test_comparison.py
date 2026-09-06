@@ -57,7 +57,7 @@ def _result(
             "threshold_policy": "fixed",
             "parameters": {"seed": 7},
         },
-        feature_metadata={"name": f"{model_family}-features", "count": 2},
+        feature_metadata={"name": f"{model_family}-features", "count": 2, "window_count": 4},
         preprocessing_metadata={"steps": ["fixture"]},
         split_metadata={"strategy": strategy, "config": {"seed": 7}},
     )
@@ -90,6 +90,8 @@ def test_comparison_report_indexes_runs_and_displays_metadata_and_metrics(
     assert "Analysis and summary" in html
     assert "Metric leaders" in html
     assert "Human interpretation" in html
+    assert "Window-size analysis" in html
+    assert "4 windows" in html
     assert "Highest" not in html
     assert "svm-run" in html
     assert "random_forest-run" in html
