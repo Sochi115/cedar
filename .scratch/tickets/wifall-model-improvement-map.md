@@ -24,7 +24,7 @@ Improve WiFall fall detection with a separate SVM training pipeline, train a sep
 - [Train simple MLP fall detector](wifall-model-improvement-09-mlp.md)
 - [Analyze MLP fall-detection performance](completed/wifall-model-improvement-10-mlp-analysis.md)
 - [Train simple CNN fall detector](completed/wifall-model-improvement-11-cnn.md)
-- [Analyze CNN fall-detection performance](wifall-model-improvement-12-cnn-analysis.md)
+- [Analyze CNN fall-detection performance](completed/wifall-model-improvement-12-cnn-analysis.md)
 
 ## Decisions so far
 
@@ -40,4 +40,5 @@ Improve WiFall fall detection with a separate SVM training pipeline, train a sep
 - [Blend improved SVM and Random Forest scores](completed/wifall-model-improvement-07-svm-random-forest-ensemble.md): Calibrated source scores are blended with weight and threshold selected by equal-participant validation; test participants remain untouched until final ensemble evaluation.
 - [Train simple MLP fall detector](completed/wifall-model-improvement-09-mlp.md): Small regularized MLP uses fixed-size normalized temporal CSI features, PCA reduction, grouped OOF sigmoid calibration, and safety-oriented recall-constrained threshold selection. Reevaluation catches all test falls but produces 32 false positives.
 - [Analyze MLP fall-detection performance](completed/wifall-model-improvement-10-mlp-analysis.md): MLP research closed as `wontfix`; safety-first operation has 0% specificity and no usable operating point.
-- [Train simple CNN fall detector](completed/wifall-model-improvement-11-cnn.md): CNN preserves temporal and subcarrier structure in a fixed-size tensor and uses grouped safety-oriented validation. Initial test recall is 93.75% with 9.375% specificity; analysis remains open.
+- [Train simple CNN fall detector](completed/wifall-model-improvement-11-cnn.md): CNN preserves temporal and subcarrier structure in a fixed-size tensor and uses grouped safety-oriented validation. Initial test recall is 93.75% with 9.375% specificity.
+- [Analyze CNN fall-detection performance](completed/wifall-model-improvement-12-cnn-analysis.md): CNN catches some falls missed by comparator models but has no useful validation operating point at 90%+ minimum participant recall; continue investigating rather than adopt.
