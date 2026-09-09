@@ -3,7 +3,7 @@
 Status: open
 Type: task
 Label: ready-for-agent
-Blocked by: completed/wifall-model-improvement-04-regularized-calibrated-random-forest.md, wifall-model-improvement-06-hard-example-analysis.md
+Blocked by: completed/wifall-model-improvement-04-regularized-calibrated-random-forest.md, completed/wifall-model-improvement-06-hard-example-analysis.md
 
 ## What to build
 
