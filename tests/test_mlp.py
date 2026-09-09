@@ -118,6 +118,11 @@ def test_mlp_training_persists_artifacts_and_safety_selection(tmp_path: Path) ->
     assert artifact["model"]["family"] == "mlp"
     assert artifact["model"]["architecture"] == [8]
     assert artifact["model"]["balancing"]["method"] == "oversample"
+    assert artifact["model"]["balancing"]["target_ratio"] == 0.5
+    assert artifact["model"]["dimensionality_reduction"]["method"] == "pca"
+    assert artifact["model"]["calibration"]["method"] == "sigmoid_logistic_oof"
+    assert artifact["model"]["fit_splits"] == ["train", "validation"]
+    assert artifact["preprocessing"]["fit_split"] == "train+validation_after_selection"
     assert artifact["selection"]["selection_split"] == "grouped_validation"
     assert artifact["selection"]["selected"]["threshold_metrics"]["minimum_group_recall"] >= 1.0
     assert set(artifact["evaluations"]) == {"train", "validation", "test"}

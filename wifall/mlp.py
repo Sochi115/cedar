@@ -10,6 +10,8 @@ from typing import Any
 
 import joblib
 import numpy as np
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 
@@ -71,13 +73,15 @@ class MlpConfig:
     """Configuration for MLP search and safety-oriented threshold selection."""
 
     run_id: str = "wifall-mlp"
-    hidden_layer_sizes: tuple[tuple[int, ...], ...] = ((32, 8),)
+    hidden_layer_sizes: tuple[tuple[int, ...], ...] = ((16, 4),)
     alpha_values: tuple[float, ...] = (1e-3,)
     activation: str = "relu"
     solver: str = "lbfgs"
     learning_rate_init: float = 1e-3
     max_iter: int = 300
     class_balance: str = "oversample"
+    oversample_ratio: float = 0.5
+    pca_components: int | None = 64
     minimum_recall: float = 0.95
     feature: MlpFeatureConfig = field(default_factory=MlpFeatureConfig)
     random_state: int = 42
@@ -93,6 +97,10 @@ class MlpConfig:
             raise ValueError("max_iter must be at least 1")
         if self.class_balance not in {"none", "oversample"}:
             raise ValueError("class_balance must be 'none' or 'oversample'")
+        if not 0.0 < self.oversample_ratio <= 1.0:
+            raise ValueError("oversample_ratio must be greater than 0 and at most 1")
+        if self.pca_components is not None and self.pca_components < 1:
+            raise ValueError("pca_components must be positive or None")
         if not 0.0 <= self.minimum_recall <= 1.0:
             raise ValueError("minimum_recall must be between 0 and 1")
 
@@ -106,6 +114,8 @@ class MlpConfig:
             "learning_rate_init": self.learning_rate_init,
             "max_iter": self.max_iter,
             "class_balance": self.class_balance,
+            "oversample_ratio": self.oversample_ratio,
+            "pca_components": self.pca_components,
             "minimum_recall": self.minimum_recall,
             "feature": self.feature.as_dict(),
             "random_state": self.random_state,
@@ -124,13 +134,25 @@ class MlpRun:
 
 
 @dataclass
+class MlpScoreCalibrator:
+    """Persistable sigmoid calibration fitted only on non-test OOF scores."""
+
+    estimator: LogisticRegression
+
+    def transform(self, scores: np.ndarray) -> np.ndarray:
+        return self.estimator.predict_proba(scores.reshape(-1, 1))[:, 1]
+
+
+@dataclass
 class WiFallMlpPipeline:
     """Persistable MLP feature extraction, scaling, scoring, and thresholding."""
 
     scaler: StandardScaler
+    reducer: PCA | None
     estimator: MLPClassifier
     feature_config: MlpFeatureConfig
     threshold: float
+    calibrator: MlpScoreCalibrator | None = None
     positive_label: str = "fall"
     negative_label: str = "non-fall"
 
@@ -143,13 +165,16 @@ class WiFallMlpPipeline:
 
     def decision_function(self, features: np.ndarray) -> np.ndarray:
         scaled = self.scaler.transform(features)
+        if self.reducer is not None:
+            scaled = self.reducer.transform(scaled)
         probabilities = np.asarray(self.estimator.predict_proba(scaled), dtype=float)
         classes = [str(value) for value in self.estimator.classes_]
         try:
             positive_index = classes.index(self.positive_label)
         except ValueError as error:
             raise DatasetFormatError("MLP has no fall class") from error
-        return probabilities[:, positive_index]
+        scores = probabilities[:, positive_index]
+        return self.calibrator.transform(scores) if self.calibrator else scores
 
     def predict_proba(self, features: np.ndarray) -> np.ndarray:
         scores = self.decision_function(features)
@@ -191,6 +216,7 @@ def _balanced_rows(
     labels: np.ndarray,
     random_state: int,
     method: str,
+    target_ratio: float,
 ) -> tuple[np.ndarray, np.ndarray, int]:
     if method == "none":
         return features, labels, 0
@@ -198,11 +224,22 @@ def _balanced_rows(
     class_indices = [np.flatnonzero(labels == label) for label in LABELS]
     if any(indexes.size == 0 for indexes in class_indices):
         raise DatasetFormatError("MLP training requires both fall and non-fall classes")
-    target_count = max(indexes.size for indexes in class_indices)
+    majority_count = max(indexes.size for indexes in class_indices)
+    minority_count = min(indexes.size for indexes in class_indices)
+    target_count = round(minority_count + target_ratio * (majority_count - minority_count))
     selected_indices = np.concatenate(
         [rng.choice(indexes, size=target_count, replace=True) for indexes in class_indices]
     )
     return features[selected_indices], labels[selected_indices], int(selected_indices.size - labels.size)
+
+
+def _transformed_features(
+    scaler: StandardScaler,
+    reducer: PCA | None,
+    features: np.ndarray,
+) -> np.ndarray:
+    transformed = scaler.transform(features)
+    return reducer.transform(transformed) if reducer is not None else transformed
 
 
 def _fall_scores(estimator: MLPClassifier, scaled_features: np.ndarray) -> np.ndarray:
@@ -325,14 +362,24 @@ def _fit_candidate(
     config: MlpConfig,
     architecture: tuple[int, ...],
     alpha: float,
-) -> tuple[StandardScaler, MLPClassifier, int]:
+) -> tuple[StandardScaler, PCA | None, MLPClassifier, int]:
     scaler = StandardScaler()
     scaled_train = scaler.fit_transform(train_features)
+    reducer = None
+    if config.pca_components is not None:
+        reducer = PCA(
+            n_components=min(config.pca_components, scaled_train.shape[0], scaled_train.shape[1]),
+            random_state=config.random_state,
+        )
+        reduced_train = reducer.fit_transform(scaled_train)
+    else:
+        reduced_train = scaled_train
     balanced_features, balanced_labels, generated_count = _balanced_rows(
-        scaled_train,
+        reduced_train,
         train_labels,
         config.random_state,
         config.class_balance,
+        config.oversample_ratio,
     )
     estimator = MLPClassifier(
         hidden_layer_sizes=architecture,
@@ -344,7 +391,7 @@ def _fit_candidate(
         random_state=config.random_state,
     )
     estimator.fit(balanced_features, balanced_labels)
-    return scaler, estimator, generated_count
+    return scaler, reducer, estimator, generated_count
 
 
 def _grouped_oof_scores(
@@ -366,7 +413,7 @@ def _grouped_oof_scores(
         train_indexes = np.asarray(
             [index for index, group in enumerate(groups) if group != held_out_group]
         )
-        scaler, estimator, fold_generated = _fit_candidate(
+        scaler, reducer, estimator, fold_generated = _fit_candidate(
             features[train_indexes],
             labels[train_indexes],
             config,
@@ -375,10 +422,24 @@ def _grouped_oof_scores(
         )
         scores[validation_indexes] = _fall_scores(
             estimator,
-            scaler.transform(features[validation_indexes]),
+            _transformed_features(scaler, reducer, features[validation_indexes]),
         )
         generated_count += fold_generated
     return scores, generated_count
+
+
+def _fit_score_calibrator(
+    scores: np.ndarray,
+    labels: np.ndarray,
+    random_state: int,
+) -> MlpScoreCalibrator:
+    estimator = LogisticRegression(
+        solver="lbfgs",
+        max_iter=1000,
+        random_state=random_state,
+    )
+    estimator.fit(scores.reshape(-1, 1), (labels == "fall").astype(np.int8))
+    return MlpScoreCalibrator(estimator)
 
 
 def train_mlp(
@@ -405,7 +466,6 @@ def train_mlp(
     audit_path = output / "dataset_audit.json"
     audit_path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     train_features = np.vstack([extract_mlp_features(record, config.feature) for _, _, record in train_records])
-    train_labels = np.asarray([record.target for _, _, record in train_records], dtype=object)
     selection_records = train_records + validation_records
     selection_features = np.vstack(
         [extract_mlp_features(record, config.feature) for _, _, record in selection_records]
@@ -416,9 +476,10 @@ def train_mlp(
     selection_groups = [participant for participant, _, _ in selection_records]
 
     candidates: list[dict[str, Any]] = []
+    candidate_calibrators: list[MlpScoreCalibrator] = []
     for architecture in config.hidden_layer_sizes:
         for alpha in config.alpha_values:
-            selection_scores, generated_count = _grouped_oof_scores(
+            raw_selection_scores, generated_count = _grouped_oof_scores(
                 selection_features,
                 selection_labels,
                 selection_groups,
@@ -426,6 +487,12 @@ def train_mlp(
                 architecture,
                 alpha,
             )
+            calibrator = _fit_score_calibrator(
+                raw_selection_scores,
+                selection_labels,
+                config.random_state,
+            )
+            selection_scores = calibrator.transform(raw_selection_scores)
             selected_threshold, threshold_table = select_mlp_threshold(
                 selection_labels,
                 selection_scores,
@@ -443,23 +510,26 @@ def train_mlp(
                     "selection_split": "grouped_validation",
                 }
             )
+            candidate_calibrators.append(calibrator)
 
     if not candidates:
         raise DatasetFormatError("MLP configuration produced no candidates")
     selected_index = max(range(len(candidates)), key=lambda index: _selection_key(candidates[index]))
     selected = candidates[selected_index]
-    selected_scaler, selected_estimator, generated_count = _fit_candidate(
-        train_features,
-        train_labels,
+    selected_scaler, selected_reducer, selected_estimator, generated_count = _fit_candidate(
+        selection_features,
+        selection_labels,
         config,
         tuple(selected["architecture"]),
         selected["alpha"],
     )
     feature_pipeline = WiFallMlpPipeline(
         selected_scaler,
+        selected_reducer,
         selected_estimator,
         config.feature,
         selected["threshold"],
+        calibrator=candidate_calibrators[selected_index],
     )
     model_path = output / "model.joblib"
     joblib.dump(feature_pipeline, model_path)
@@ -480,14 +550,24 @@ def train_mlp(
         },
         "balancing": {
             "method": config.class_balance,
+            "target_ratio": config.oversample_ratio,
             "generated_training_examples": generated_count,
+        },
+        "dimensionality_reduction": {
+            "method": "pca" if selected_reducer is not None else "none",
+            "requested_components": config.pca_components,
+            "components": int(selected_reducer.n_components_) if selected_reducer is not None else None,
         },
         "decision_threshold": selected["threshold"],
         "threshold_policy": "minimum_grouped_validation_recall_then_specificity",
         "minimum_recall": config.minimum_recall,
-        "calibration": {"method": "native_predict_proba", "positive_label": "fall"},
-        "fit_splits": ["train"],
-        "fit_participants": manifest["participants"]["train"],
+        "calibration": {
+            "method": "sigmoid_logistic_oof",
+            "fit_split": "grouped_non_test_oof",
+            "positive_label": "fall",
+        },
+        "fit_splits": ["train", "validation"],
+        "fit_participants": sorted(set(selection_groups)),
         "score_orientation": {"positive_label": "fall", "score": "fall_probability"},
     }
     feature_metadata = config.feature.as_dict() | {"count": int(train_features.shape[1])}
@@ -496,10 +576,12 @@ def train_mlp(
             "per-recording CSI amplitude median/MAD normalization",
             f"{config.feature.window_count} temporal windows",
             "training-only StandardScaler",
+            "training-only PCA",
             "training-only class balancing",
             "regularized MLP",
+            "grouped non-test OOF sigmoid calibration",
         ],
-        "fit_split": "train",
+        "fit_split": "train+validation_after_selection",
     }
     split_metadata = {
         "strategy": "participant-held-out",
@@ -544,7 +626,7 @@ def train_mlp(
             group_ids=[participant for participant, _, _ in records],
         )
         evaluation = evaluation_result["evaluations"][split]
-        evaluation["fit_status"] = "fit_data" if split == "train" else "held_out"
+        evaluation["fit_status"] = "fit_data" if split in {"train", "validation"} else "held_out"
         evaluation["threshold_metrics"] = selected["threshold_table"] if split == "validation" else []
         evaluation["hard_example_analysis"] = analyze_hard_examples(
             evaluation,
