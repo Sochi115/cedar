@@ -1,6 +1,7 @@
 """WiFall dataset loading and participant-held-out split utilities."""
 
 from .audit import audit_wifall
+from .ensemble import EnsembleConfig, EnsembleRun, train_ensemble
 from .improved_svm import (
     ImprovedFeatureConfig,
     ImprovedSvmConfig,
@@ -39,6 +40,7 @@ from .random_forest import (
     select_random_forest_threshold,
     train_random_forest,
 )
+from .random_forest_diagnostics import analyze_random_forest_errors
 from .svm import (
     FeatureConfig,
     SvmConfig,
@@ -53,6 +55,8 @@ __all__ = [
     "CsiParseError",
     "DatasetFormatError",
     "DatasetSummary",
+    "EnsembleConfig",
+    "EnsembleRun",
     "FeatureConfig",
     "ImprovedFeatureConfig",
     "ImprovedSvmConfig",
@@ -71,6 +75,7 @@ __all__ = [
     "ThresholdedRandomForest",
     "WiFallRandomForestPipeline",
     "WiFallSvmPipeline",
+    "analyze_random_forest_errors",
     "audit_wifall",
     "discover_recordings",
     "extract_improved_features",
@@ -87,6 +92,7 @@ __all__ = [
     "select_random_forest_threshold",
     "select_threshold",
     "summarize_dataset",
+    "train_ensemble",
     "train_improved_svm",
     "train_random_forest",
     "train_svm",

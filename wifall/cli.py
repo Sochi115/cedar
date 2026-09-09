@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from .ensemble import train_ensemble
 from .improved_svm import train_improved_svm
 from .loader import (
     SplitConfig,
@@ -49,6 +50,15 @@ def _build_parser() -> argparse.ArgumentParser:
     random_forest.add_argument("dataset_root", type=Path)
     random_forest.add_argument("split_manifest", type=Path)
     random_forest.add_argument("output_dir", type=Path)
+
+    ensemble = subparsers.add_parser(
+        "train-ensemble", help="blend improved SVM and Random Forest scores"
+    )
+    ensemble.add_argument("dataset_root", type=Path)
+    ensemble.add_argument("split_manifest", type=Path)
+    ensemble.add_argument("improved_svm_run", type=Path)
+    ensemble.add_argument("random_forest_run", type=Path)
+    ensemble.add_argument("output_dir", type=Path)
     return parser
 
 
@@ -81,6 +91,18 @@ def main(argv: list[str] | None = None) -> int:
         run = train_improved_svm(args.dataset_root, args.split_manifest, args.output_dir)
         print(f"Wrote model: {run.model_path}")
         print(f"Wrote audit: {run.audit_path}")
+        print(f"Wrote run artifact: {run.artifact_path}")
+        print(f"Wrote report: {run.report_path}")
+        return 0
+
+    if args.command == "train-ensemble":
+        run = train_ensemble(
+            args.dataset_root,
+            args.split_manifest,
+            args.improved_svm_run,
+            args.random_forest_run,
+            args.output_dir,
+        )
         print(f"Wrote run artifact: {run.artifact_path}")
         print(f"Wrote report: {run.report_path}")
         return 0

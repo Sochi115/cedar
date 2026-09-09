@@ -179,7 +179,31 @@ data/processed/wifall/random-forest-run/
 
 Random Forest parameters are selected from a regularized search, and fall scores are sigmoid-calibrated before threshold selection. Feature selection compares the four-window baseline with an eight-window motion representation containing delta magnitude, slope, energy, peak-to-peak, and change-point features. Leave-one-participant-out validation covers training and validation participants with equal participant contribution. Test participants are evaluated once for final aggregate and per-participant metrics.
 
-## 7. Generate static HTML report
+## 7. Blend improved SVM and Random Forest
+
+Create calibrated ensemble scores. Calibration fits use train and validation artifacts; blend weight and threshold use grouped validation only. Test participants are evaluated after selection.
+
+```bash
+uv run python -m wifall.cli train-ensemble \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json \
+  data/processed/wifall/improved-svm-run \
+  data/processed/wifall/random-forest-run \
+  data/processed/wifall/ensemble-run
+```
+
+Outputs include `run.json` and self-contained `report.html`. Compare ensemble with source runs:
+
+```bash
+uv run python -m evaluation.comparison \
+  data/processed/wifall/comparison/report.html \
+  data/processed/wifall/svm-run/run.json \
+  data/processed/wifall/improved-svm-run/run.json \
+  data/processed/wifall/random-forest-run/run.json \
+  data/processed/wifall/ensemble-run/run.json
+```
+
+## 8. Generate static HTML report
 
 Render the JSON evaluation result as self-contained HTML:
 
@@ -197,7 +221,7 @@ evaluation-report \
   data/processed/wifall/svm-run/report.html
 ```
 
-## 8. View the report
+## 9. View the report
 
 On macOS:
 
@@ -228,7 +252,7 @@ The report shows:
 - ROC-AUC and PR-AUC when compatible scores exist
 - `Not available` for optional metrics that cannot be calculated
 
-## 9. Compare model runs
+## 10. Compare model runs
 
 Generate one offline comparison report from any valid generic run artifacts:
 
@@ -275,15 +299,24 @@ uv run python -m wifall.cli train-random-forest \
   data/processed/wifall/split.json \
   data/processed/wifall/random-forest-run
 
+uv run python -m wifall.cli train-ensemble \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json \
+  data/processed/wifall/improved-svm-run \
+  data/processed/wifall/random-forest-run \
+  data/processed/wifall/ensemble-run
+
 uv run python -m evaluation.comparison \
   data/processed/wifall/comparison/report.html \
   data/processed/wifall/svm-run/run.json \
   data/processed/wifall/improved-svm-run/run.json \
-  data/processed/wifall/random-forest-run/run.json
+  data/processed/wifall/random-forest-run/run.json \
+  data/processed/wifall/ensemble-run/run.json
 
 open data/processed/wifall/svm-run/report.html
 open data/processed/wifall/improved-svm-run/report.html
 open data/processed/wifall/random-forest-run/report.html
+open data/processed/wifall/ensemble-run/report.html
 open data/processed/wifall/comparison/report.html
 ```
 
@@ -298,6 +331,8 @@ model + validation features + validation labels
 ```
 
 The result artifact must follow the schema produced by `evaluation.evaluate_classifier`. The renderer only reads this artifact. It does not import the model or dataset implementation.
+
+Optional hard-example diagnostics use the same model-independent artifact. Call `evaluation.analyze_hard_examples` with one evaluation and aligned observation metadata (`observation_id`, optional `group_id`, activity, duration, and signal-quality fields). Training pipelines persist diagnostics under `evaluations.<split>.hard_example_analysis`; diagnostics explain finalized errors but never select models, features, or thresholds.
 
 ## Tests
 
