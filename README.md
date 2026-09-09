@@ -179,7 +179,20 @@ data/processed/wifall/random-forest-run/
 
 Random Forest parameters are selected from a regularized search, and fall scores are sigmoid-calibrated before threshold selection. Feature selection compares the four-window baseline with an eight-window motion representation containing delta magnitude, slope, energy, peak-to-peak, and change-point features. Leave-one-participant-out validation covers training and validation participants with equal participant contribution. Test participants are evaluated once for final aggregate and per-participant metrics.
 
-## 7. Blend improved SVM and Random Forest
+## 7. Train simple MLP
+
+Train a small regularized MLP on fixed-size normalized temporal CSI features. The MLP uses participant-grouped non-test validation and safety-oriented minimum-recall threshold selection.
+
+```bash
+uv run python -m wifall.cli train-mlp \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json \
+  data/processed/wifall/mlp-run
+```
+
+Outputs include `model.joblib`, `run.json`, `dataset_audit.json`, and self-contained `report.html`.
+
+## 8. Blend improved SVM and Random Forest
 
 Create calibrated ensemble scores. Calibration fits use train and validation artifacts; blend weight and threshold use grouped validation only. Test participants are evaluated after selection.
 
@@ -203,7 +216,7 @@ uv run python -m evaluation.comparison \
   data/processed/wifall/ensemble-run/run.json
 ```
 
-## 8. Generate static HTML report
+## 9. Generate static HTML report
 
 Render the JSON evaluation result as self-contained HTML:
 
@@ -221,7 +234,7 @@ evaluation-report \
   data/processed/wifall/svm-run/report.html
 ```
 
-## 9. View the report
+## 10. View the report
 
 On macOS:
 
@@ -252,7 +265,7 @@ The report shows:
 - ROC-AUC and PR-AUC when compatible scores exist
 - `Not available` for optional metrics that cannot be calculated
 
-## 10. Compare model runs
+## 11. Compare model runs
 
 Generate one offline comparison report from any valid generic run artifacts:
 
@@ -261,7 +274,9 @@ uv run python -m evaluation.comparison \
   data/processed/wifall/comparison/report.html \
   data/processed/wifall/svm-run/run.json \
   data/processed/wifall/improved-svm-run/run.json \
-  data/processed/wifall/random-forest-run/run.json
+  data/processed/wifall/random-forest-run/run.json \
+  data/processed/wifall/mlp-run/run.json \
+  data/processed/wifall/ensemble-run/run.json
 ```
 
 The comparison report links each run's individual report, compares metrics and metadata, and warns when labels, tasks, datasets, or evaluation protocols differ. Future model families only need valid generic run artifacts.
@@ -299,6 +314,11 @@ uv run python -m wifall.cli train-random-forest \
   data/processed/wifall/split.json \
   data/processed/wifall/random-forest-run
 
+uv run python -m wifall.cli train-mlp \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json \
+  data/processed/wifall/mlp-run
+
 uv run python -m wifall.cli train-ensemble \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
@@ -311,11 +331,13 @@ uv run python -m evaluation.comparison \
   data/processed/wifall/svm-run/run.json \
   data/processed/wifall/improved-svm-run/run.json \
   data/processed/wifall/random-forest-run/run.json \
+  data/processed/wifall/mlp-run/run.json \
   data/processed/wifall/ensemble-run/run.json
 
 open data/processed/wifall/svm-run/report.html
 open data/processed/wifall/improved-svm-run/report.html
 open data/processed/wifall/random-forest-run/report.html
+open data/processed/wifall/mlp-run/report.html
 open data/processed/wifall/ensemble-run/report.html
 open data/processed/wifall/comparison/report.html
 ```
