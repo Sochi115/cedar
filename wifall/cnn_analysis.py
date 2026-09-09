@@ -128,6 +128,31 @@ def _operating_points(evaluation: dict[str, Any]) -> dict[str, Any]:
     return {"points": points, "targets": selected}
 
 
+def _participant_metrics(evaluation: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    labels = evaluation["y_true"]
+    predictions = evaluation["y_pred"]
+    groups = evaluation["group_ids"]
+    metrics: dict[str, dict[str, Any]] = {}
+    for group in sorted(set(groups)):
+        indexes = [index for index, value in enumerate(groups) if value == group]
+        group_labels = np.asarray([labels[index] for index in indexes], dtype=object)
+        group_predictions = np.asarray([predictions[index] for index in indexes], dtype=object)
+        falls = group_labels == "fall"
+        negatives = group_labels == "non-fall"
+        false_negatives = int(np.sum(falls & (group_predictions == "non-fall")))
+        false_positives = int(np.sum(negatives & (group_predictions == "fall")))
+        metrics[str(group)] = {
+            "support": len(indexes),
+            "fall_support": int(np.sum(falls)),
+            "recall": float(np.mean(group_predictions[falls] == "fall")) if falls.any() else 0.0,
+            "sensitivity": float(np.mean(group_predictions[falls] == "fall")) if falls.any() else 0.0,
+            "specificity": _specificity(group_labels, group_predictions),
+            "false_negatives": false_negatives,
+            "false_positives": false_positives,
+        }
+    return metrics
+
+
 def _source_summary(name: str, path: Path, result: dict[str, Any]) -> dict[str, Any]:
     test = result["evaluations"]["test"]
     validation = result["evaluations"]["validation"]
@@ -138,6 +163,8 @@ def _source_summary(name: str, path: Path, result: dict[str, Any]) -> dict[str, 
         "validation_metrics": validation.get("metrics", {}),
         "test_metrics": test.get("metrics", {}),
         "test_errors": _error_ids(test),
+        "test_participant_metrics": _participant_metrics(test),
+        "validation_participant_metrics": _participant_metrics(validation),
     }
 
 
@@ -185,10 +212,11 @@ th {{ background: #f1f3f4; }}
 <p class="note">Validation operating points use validation observations only. Test errors are final diagnostic reporting.</p>
 <section><h2>Test metrics</h2><table><thead><tr><th>model</th>{''.join(f'<th>{escape(name)}</th>' for name in metric_names)}</tr></thead><tbody>{''.join(metric_rows)}</tbody></table></section>
 <section><h2>Test errors</h2><table><thead><tr><th>model</th><th>false negatives</th><th>false positives</th></tr></thead><tbody>{''.join(error_rows)}</tbody></table></section>
+<section><h2>Per-participant safety metrics</h2><pre>{json_text({source['name']: source['test_participant_metrics'] for source in artifact['sources']})}</pre></section>
 <section><h2>CNN operating points</h2><pre>{json_text(artifact['threshold_analysis']['models']['cnn'])}</pre></section>
 <section><h2>CNN diagnostics</h2><pre>{json_text(artifact['cnn_diagnostics'])}</pre></section>
 <section><h2>Complementarity</h2><pre>{json_text(artifact['complementarity'])}</pre></section>
-<section><h2>Recommendation input</h2><p>{escape(artifact['recommendation'])}</p></section>
+<section><h2>Recommendation input</h2><pre>{json_text(artifact['recommendation'])}</pre></section>
 </body></html>"""
 
 
@@ -277,7 +305,10 @@ def analyze_cnn_runs(
             "models": threshold_models,
         },
         "cnn_diagnostics": cnn_diagnostics,
-        "recommendation": "Review CNN threshold operating points and complementarity before adoption; current artifact does not select a production model.",
+        "recommendation": {
+            "decision": "continue_investigating",
+            "reason": "CNN catches some falls missed by comparator models but has insufficient specificity at its safety-oriented test operating point.",
+        },
     }
     output = Path(output_dir).expanduser()
     output.mkdir(parents=True, exist_ok=True)

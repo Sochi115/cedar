@@ -95,6 +95,8 @@ def test_cnn_analysis_reports_complementary_and_shared_errors(tmp_path: Path) ->
     assert "ID2/fall/e.csv" in artifact["complementarity"]["cnn_catches_fall_missed_by"]["svm"]
     assert artifact["threshold_analysis"]["uses_split"] == "validation"
     assert artifact["cnn_diagnostics"]["test"]["temporal_pattern"]["available"] is False
+    assert artifact["sources"][0]["test_participant_metrics"]["ID2"]["recall"] == 1.0
+    assert artifact["recommendation"]["decision"] == "continue_investigating"
     assert "CNN analysis" in result.report_path.read_text(encoding="utf-8")
 
 
@@ -104,6 +106,15 @@ def test_cnn_analysis_is_deterministic_and_rejects_misalignment(tmp_path: Path) 
     second = analyze_cnn_runs(runs["cnn"], (runs["svm"], runs["rf"], runs["ensemble"]), tmp_path / "second")
 
     assert json.loads(first.artifact_path.read_text()) == json.loads(second.artifact_path.read_text())
+    missing_metadata = json.loads(runs["cnn"].read_text())
+    for evaluation in missing_metadata["evaluations"].values():
+        evaluation.pop("hard_example_analysis", None)
+    save_evaluation_result(missing_metadata, runs["cnn"])
+    without_optional_metadata = analyze_cnn_runs(
+        runs["cnn"], (runs["svm"], runs["rf"], runs["ensemble"]), tmp_path / "missing-metadata"
+    )
+    assert without_optional_metadata.artifact["cnn_diagnostics"]["test"]["hard_examples"] == {}
+
     broken = json.loads(runs["rf"].read_text())
     broken["evaluations"]["test"]["observation_ids"].reverse()
     save_evaluation_result(broken, runs["rf"])
