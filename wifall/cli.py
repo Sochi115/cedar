@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from .cnn import train_cnn
 from .ensemble import train_ensemble
 from .improved_svm import train_improved_svm
 from .loader import (
@@ -49,6 +50,11 @@ def _build_parser() -> argparse.ArgumentParser:
     mlp.add_argument("dataset_root", type=Path)
     mlp.add_argument("split_manifest", type=Path)
     mlp.add_argument("output_dir", type=Path)
+
+    cnn = subparsers.add_parser("train-cnn", help="train and evaluate a small CNN")
+    cnn.add_argument("dataset_root", type=Path)
+    cnn.add_argument("split_manifest", type=Path)
+    cnn.add_argument("output_dir", type=Path)
 
     random_forest = subparsers.add_parser(
         "train-random-forest", help="train and evaluate the Random Forest"
@@ -103,6 +109,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "train-mlp":
         run = train_mlp(args.dataset_root, args.split_manifest, args.output_dir)
+        print(f"Wrote model: {run.model_path}")
+        print(f"Wrote audit: {run.audit_path}")
+        print(f"Wrote run artifact: {run.artifact_path}")
+        print(f"Wrote report: {run.report_path}")
+        return 0
+
+    if args.command == "train-cnn":
+        run = train_cnn(args.dataset_root, args.split_manifest, args.output_dir)
         print(f"Wrote model: {run.model_path}")
         print(f"Wrote audit: {run.audit_path}")
         print(f"Wrote run artifact: {run.artifact_path}")

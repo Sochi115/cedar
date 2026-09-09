@@ -192,7 +192,22 @@ uv run python -m wifall.cli train-mlp \
 
 Outputs include `model.joblib`, `run.json`, `dataset_audit.json`, and self-contained `report.html`.
 
-## 8. Blend improved SVM and Random Forest
+## 8. Train simple CNN
+
+Train a small 2D CNN on normalized CSI amplitude tensors shaped as `channel × time × subcarrier`. The CNN uses participant-grouped non-test validation and safety-oriented minimum-recall threshold selection.
+
+Install project dependencies with `uv sync`, then run:
+
+```bash
+uv run python -m wifall.cli train-cnn \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json \
+  data/processed/wifall/cnn-run
+```
+
+Outputs include `model.joblib`, `run.json`, `dataset_audit.json`, and self-contained `report.html`.
+
+## 9. Blend improved SVM and Random Forest
 
 Create calibrated ensemble scores. Calibration fits use train and validation artifacts; blend weight and threshold use grouped validation only. Test participants are evaluated after selection.
 
@@ -216,7 +231,7 @@ uv run python -m evaluation.comparison \
   data/processed/wifall/ensemble-run/run.json
 ```
 
-## 9. Generate static HTML report
+## 10. Generate static HTML report
 
 Render the JSON evaluation result as self-contained HTML:
 
@@ -234,7 +249,7 @@ evaluation-report \
   data/processed/wifall/svm-run/report.html
 ```
 
-## 10. View the report
+## 11. View the report
 
 On macOS:
 
@@ -265,7 +280,7 @@ The report shows:
 - ROC-AUC and PR-AUC when compatible scores exist
 - `Not available` for optional metrics that cannot be calculated
 
-## 11. Compare model runs
+## 12. Compare model runs
 
 Generate one offline comparison report from any valid generic run artifacts:
 
@@ -276,6 +291,7 @@ uv run python -m evaluation.comparison \
   data/processed/wifall/improved-svm-run/run.json \
   data/processed/wifall/random-forest-run/run.json \
   data/processed/wifall/mlp-run/run.json \
+  data/processed/wifall/cnn-run/run.json \
   data/processed/wifall/ensemble-run/run.json
 ```
 
@@ -319,6 +335,11 @@ uv run python -m wifall.cli train-mlp \
   data/processed/wifall/split.json \
   data/processed/wifall/mlp-run
 
+uv run python -m wifall.cli train-cnn \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json \
+  data/processed/wifall/cnn-run
+
 uv run python -m wifall.cli train-ensemble \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
@@ -332,12 +353,14 @@ uv run python -m evaluation.comparison \
   data/processed/wifall/improved-svm-run/run.json \
   data/processed/wifall/random-forest-run/run.json \
   data/processed/wifall/mlp-run/run.json \
+  data/processed/wifall/cnn-run/run.json \
   data/processed/wifall/ensemble-run/run.json
 
 open data/processed/wifall/svm-run/report.html
 open data/processed/wifall/improved-svm-run/report.html
 open data/processed/wifall/random-forest-run/report.html
 open data/processed/wifall/mlp-run/report.html
+open data/processed/wifall/cnn-run/report.html
 open data/processed/wifall/ensemble-run/report.html
 open data/processed/wifall/comparison/report.html
 ```

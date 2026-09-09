@@ -1,6 +1,6 @@
 # Train simple CNN fall detector
 
-Status: open
+Status: claimed
 Type: task
 Label: ready-for-agent
 Blocked by: completed/wifall-model-improvement-03-grouped-validation.md, completed/wifall-model-improvement-05-temporal-features.md

@@ -1,6 +1,16 @@
 """WiFall dataset loading and participant-held-out split utilities."""
 
 from .audit import audit_wifall
+from .cnn import (
+    CnnConfig,
+    CnnFeatureConfig,
+    CnnRun,
+    WiFallCnnPipeline,
+    extract_cnn_tensor,
+    load_cnn,
+    select_cnn_threshold,
+    train_cnn,
+)
 from .ensemble import EnsembleConfig, EnsembleRun, train_ensemble
 from .improved_svm import (
     ImprovedFeatureConfig,
@@ -62,6 +72,9 @@ from .svm import (
 )
 
 __all__ = [
+    "CnnConfig",
+    "CnnFeatureConfig",
+    "CnnRun",
     "CsiParseError",
     "DatasetFormatError",
     "DatasetSummary",
@@ -86,17 +99,20 @@ __all__ = [
     "SvmConfig",
     "SvmRun",
     "ThresholdedRandomForest",
+    "WiFallCnnPipeline",
     "WiFallMlpPipeline",
     "WiFallRandomForestPipeline",
     "WiFallSvmPipeline",
     "analyze_random_forest_errors",
     "audit_wifall",
     "discover_recordings",
+    "extract_cnn_tensor",
     "extract_improved_features",
     "extract_mlp_features",
     "extract_random_forest_features",
     "extract_recording_features",
     "generate_split_manifest",
+    "load_cnn",
     "load_improved_svm",
     "load_mlp",
     "load_random_forest",
@@ -105,10 +121,12 @@ __all__ = [
     "load_trained_svm",
     "parse_csi_field",
     "save_split_manifest",
+    "select_cnn_threshold",
     "select_mlp_threshold",
     "select_random_forest_threshold",
     "select_threshold",
     "summarize_dataset",
+    "train_cnn",
     "train_ensemble",
     "train_improved_svm",
     "train_mlp",
