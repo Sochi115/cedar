@@ -22,7 +22,7 @@ Improve WiFall fall detection with a separate SVM training pipeline, train a sep
 - [Upgrade temporal CSI feature representation](completed/wifall-model-improvement-05-temporal-features.md)
 - [Compare baseline, improved SVM, and Random Forest runs](wifall-svm-report-04-compare-runs.md)
 - [Train simple MLP fall detector](wifall-model-improvement-09-mlp.md)
-- [Analyze MLP fall-detection performance](wifall-model-improvement-10-mlp-analysis.md)
+- [Analyze MLP fall-detection performance](completed/wifall-model-improvement-10-mlp-analysis.md)
 
 ## Decisions so far
 
@@ -36,4 +36,5 @@ Improve WiFall fall detection with a separate SVM training pipeline, train a sep
 - [Train separate WiFall Random Forest model](completed/wifall-model-improvement-02-random-forest.md): Separate Random Forest training now persists model, audit, generic result, and HTML report artifacts using the improved feature representation and validation-only selection.
 - [Analyze Random Forest hard examples](completed/wifall-model-improvement-06-hard-example-analysis.md): Finalized Random Forest, improved SVM, and baseline SVM evaluations now share deterministic, diagnostic-only error analysis by group, activity, duration, signal quality, score range, and observation example.
 - [Blend improved SVM and Random Forest scores](completed/wifall-model-improvement-07-svm-random-forest-ensemble.md): Calibrated source scores are blended with weight and threshold selected by equal-participant validation; test participants remain untouched until final ensemble evaluation.
-- [Train simple MLP fall detector](completed/wifall-model-improvement-09-mlp.md): Small regularized MLP uses fixed-size normalized temporal CSI features, PCA reduction, grouped OOF sigmoid calibration, and safety-oriented recall-constrained threshold selection. Reevaluation still catches all test falls but produces 32 false positives; analysis remains open.
+- [Train simple MLP fall detector](completed/wifall-model-improvement-09-mlp.md): Small regularized MLP uses fixed-size normalized temporal CSI features, PCA reduction, grouped OOF sigmoid calibration, and safety-oriented recall-constrained threshold selection. Reevaluation catches all test falls but produces 32 false positives.
+- [Analyze MLP fall-detection performance](completed/wifall-model-improvement-10-mlp-analysis.md): MLP research closed as `wontfix`; safety-first operation has 0% specificity and no usable operating point.
