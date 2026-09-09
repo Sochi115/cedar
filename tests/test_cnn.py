@@ -96,6 +96,20 @@ def test_cnn_tensor_shape_and_extraction_are_deterministic(tmp_path: Path) -> No
     np.testing.assert_array_equal(first, second)
 
 
+def test_cnn_pipeline_rejects_wrong_tensor_shape(tmp_path: Path) -> None:
+    root = _fixture_dataset(tmp_path)
+    manifest_path = _fixture_manifest(root, tmp_path)
+    run = train_cnn(root, manifest_path, tmp_path / "cnn-run", _config())
+    model = load_cnn(run.model_path)
+
+    try:
+        model.decision_function(np.zeros((1, 16, 52), dtype=np.float32))
+    except ValueError as error:
+        assert str(error) == "CNN features must have shape (observations, 1, 16, 52)"
+    else:
+        raise AssertionError("Expected CNN tensor shape validation")
+
+
 def test_cnn_threshold_requires_grouped_recall() -> None:
     labels = np.asarray(["fall", "non-fall", "fall", "non-fall"], dtype=object)
     scores = np.asarray([0.7, 0.6, 0.4, 0.3])

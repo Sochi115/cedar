@@ -161,7 +161,14 @@ class WiFallCnnPipeline:
         return np.stack([extract_cnn_tensor(recording, self.feature_config) for recording in recordings])
 
     def decision_function(self, features: np.ndarray) -> np.ndarray:
-        values = torch.from_numpy(np.asarray(features, dtype=np.float32))
+        values_array = np.asarray(features, dtype=np.float32)
+        expected_shape = (self.feature_config.sample_count, self.feature_config.subcarrier_count)
+        if values_array.ndim != 4 or values_array.shape[1:] != (1, *expected_shape):
+            raise ValueError(
+                "CNN features must have shape "
+                f"(observations, 1, {expected_shape[0]}, {expected_shape[1]})"
+            )
+        values = torch.from_numpy(values_array)
         self.network.eval()
         with torch.no_grad():
             return torch.sigmoid(self.network(values)).cpu().numpy()
@@ -196,6 +203,10 @@ def extract_cnn_tensor(
     """Resample one recording to deterministic ``[channel, time, subcarrier]``."""
 
     config = config or CnnFeatureConfig()
+    if recording.csi.ndim != 2 or recording.csi.shape[1] != config.subcarrier_count:
+        raise DatasetFormatError(
+            f"CNN input requires {config.subcarrier_count} subcarriers"
+        )
     amplitude = _normalized_amplitude(recording)
     source_positions = np.linspace(0.0, 1.0, amplitude.shape[0])
     target_positions = np.linspace(0.0, 1.0, config.sample_count)
