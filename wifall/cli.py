@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from .cnn import train_cnn
+from .cnn_analysis import analyze_cnn_runs
 from .ensemble import train_ensemble
 from .improved_svm import train_improved_svm
 from .loader import (
@@ -55,6 +56,15 @@ def _build_parser() -> argparse.ArgumentParser:
     cnn.add_argument("dataset_root", type=Path)
     cnn.add_argument("split_manifest", type=Path)
     cnn.add_argument("output_dir", type=Path)
+
+    cnn_analysis = subparsers.add_parser(
+        "analyze-cnn", help="analyze CNN errors and model complementarity"
+    )
+    cnn_analysis.add_argument("output_dir", type=Path)
+    cnn_analysis.add_argument("cnn_run", type=Path)
+    cnn_analysis.add_argument("improved_svm_run", type=Path)
+    cnn_analysis.add_argument("random_forest_run", type=Path)
+    cnn_analysis.add_argument("ensemble_run", type=Path)
 
     random_forest = subparsers.add_parser(
         "train-random-forest", help="train and evaluate the Random Forest"
@@ -120,6 +130,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote model: {run.model_path}")
         print(f"Wrote audit: {run.audit_path}")
         print(f"Wrote run artifact: {run.artifact_path}")
+        print(f"Wrote report: {run.report_path}")
+        return 0
+
+    if args.command == "analyze-cnn":
+        run = analyze_cnn_runs(
+            args.cnn_run,
+            (args.improved_svm_run, args.random_forest_run, args.ensemble_run),
+            args.output_dir,
+        )
+        print(f"Wrote analysis artifact: {run.artifact_path}")
         print(f"Wrote report: {run.report_path}")
         return 0
 

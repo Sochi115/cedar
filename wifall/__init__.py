@@ -11,6 +11,7 @@ from .cnn import (
     select_cnn_threshold,
     train_cnn,
 )
+from .cnn_analysis import CnnAnalysisRun, analyze_cnn_runs
 from .ensemble import EnsembleConfig, EnsembleRun, train_ensemble
 from .improved_svm import (
     ImprovedFeatureConfig,
@@ -72,6 +73,7 @@ from .svm import (
 )
 
 __all__ = [
+    "CnnAnalysisRun",
     "CnnConfig",
     "CnnFeatureConfig",
     "CnnRun",
@@ -103,6 +105,7 @@ __all__ = [
     "WiFallMlpPipeline",
     "WiFallRandomForestPipeline",
     "WiFallSvmPipeline",
+    "analyze_cnn_runs",
     "analyze_random_forest_errors",
     "audit_wifall",
     "discover_recordings",

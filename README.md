@@ -297,6 +297,21 @@ uv run python -m evaluation.comparison \
 
 The comparison report links each run's individual report, compares metrics and metadata, and warns when labels, tasks, datasets, or evaluation protocols differ. Future model families only need valid generic run artifacts.
 
+## 13. Analyze CNN complementarity
+
+Analyze CNN errors, validation operating points, and complementary detections without selecting from test results:
+
+```bash
+uv run python -m wifall.cli analyze-cnn \
+  data/processed/wifall/cnn-analysis \
+  data/processed/wifall/cnn-run \
+  data/processed/wifall/improved-svm-run \
+  data/processed/wifall/random-forest-run \
+  data/processed/wifall/ensemble-run
+```
+
+Outputs: `cnn-analysis.json` and self-contained `report.html`.
+
 ## Full command sequence
 
 Run this sequence from repository root:
@@ -355,6 +370,13 @@ uv run python -m evaluation.comparison \
   data/processed/wifall/mlp-run/run.json \
   data/processed/wifall/cnn-run/run.json \
   data/processed/wifall/ensemble-run/run.json
+
+uv run python -m wifall.cli analyze-cnn \
+  data/processed/wifall/cnn-analysis \
+  data/processed/wifall/cnn-run \
+  data/processed/wifall/improved-svm-run \
+  data/processed/wifall/random-forest-run \
+  data/processed/wifall/ensemble-run
 
 open data/processed/wifall/svm-run/report.html
 open data/processed/wifall/improved-svm-run/report.html
