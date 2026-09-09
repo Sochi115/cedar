@@ -148,6 +148,8 @@ def test_improved_training_persists_model_run_report_and_audit(tmp_path: Path) -
     assert run.artifact["evaluations"]["validation"]["threshold_metrics"]
     assert run.artifact["evaluations"]["test"]["participant_metrics"]
     assert run.artifact["evaluations"]["test"]["score_distribution"]
+    assert run.artifact["evaluations"]["test"]["hard_example_analysis"]["selection_excluded"] is True
+    assert "Hard-example diagnostics" in report
     assert "data_audit" in run.artifact
 
     model = load_improved_svm(run.model_path)

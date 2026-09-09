@@ -100,6 +100,10 @@ def test_svm_training_persists_generic_artifact_and_model(tmp_path: Path) -> Non
     assert artifact["features"]["count"] == 260
     assert artifact["preprocessing"]["fit_split"] == "train"
     assert set(artifact["evaluations"]) == {"train", "validation", "test"}
+    assert all(
+        evaluation["hard_example_analysis"]["purpose"] == "post_evaluation_diagnostic_only"
+        for evaluation in artifact["evaluations"].values()
+    )
     assert artifact["confusion_matrix"] == artifact["evaluations"]["test"]["confusion_matrix"]
     for metric in (
         "accuracy",

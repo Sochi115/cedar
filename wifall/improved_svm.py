@@ -14,9 +14,15 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
-from evaluation import evaluate_classifier, render_html_report, save_evaluation_result
+from evaluation import (
+    analyze_hard_examples,
+    evaluate_classifier,
+    render_html_report,
+    save_evaluation_result,
+)
 
 from .audit import audit_wifall
+from .diagnostics import recording_observations
 from .loader import (
     DatasetFormatError,
     Recording,
@@ -463,6 +469,13 @@ def train_improved_svm(
         evaluation["score_distribution"] = _score_distribution(scores, records)
         evaluation["threshold_metrics"] = (
             selected["threshold_table"] if split == "validation" else []
+        )
+        evaluation["hard_example_analysis"] = analyze_hard_examples(
+            evaluation,
+            recording_observations(records),
+            run_id=config.run_id,
+            split_name=split,
+            threshold=selected["threshold"],
         )
         evaluations[split] = evaluation
 

@@ -12,8 +12,13 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
-from evaluation import evaluate_classifier, save_evaluation_result
+from evaluation import (
+    analyze_hard_examples,
+    evaluate_classifier,
+    save_evaluation_result,
+)
 
+from .diagnostics import recording_observations
 from .loader import (
     DatasetFormatError,
     Recording,
@@ -251,7 +256,14 @@ def train_svm(
             observation_ids=[record.reference.recording_id for _, _, record in records],
             group_ids=[participant for participant, _, _ in records],
         )
-        evaluation_results[split] = result["evaluations"][split]
+        evaluation = result["evaluations"][split]
+        evaluation["hard_example_analysis"] = analyze_hard_examples(
+            evaluation,
+            recording_observations(records),
+            run_id=config.run_id,
+            split_name=split,
+        )
+        evaluation_results[split] = evaluation
 
     primary_split = "test" if "test" in evaluation_results else "train"
     primary_evaluation = evaluation_results[primary_split]

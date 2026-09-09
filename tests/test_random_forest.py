@@ -199,7 +199,10 @@ def test_random_forest_training_persists_separate_generic_artifacts_and_report(
         assert len(contributions) == 1
     assert set(artifact["evaluations"]) == {"train", "validation", "test"}
     assert artifact["evaluations"]["test"]["participant_metrics"]
-    assert "random_forest" in run.report_path.read_text(encoding="utf-8")
+    report = run.report_path.read_text(encoding="utf-8")
+    assert "random_forest" in report
+    assert "Hard-example diagnostics" in report
+    assert run.artifact["evaluations"]["test"]["hard_example_analysis"]["selection_excluded"] is True
 
 
 def test_random_forest_model_reproduces_test_predictions_and_has_explicit_score_orientation(

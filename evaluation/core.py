@@ -239,6 +239,7 @@ def evaluate_classifier(
         "y_true": _builtin(y_true),
         "y_pred": _builtin(y_pred),
         "scores": scores,
+        "positive_scores": _builtin(positive_scores) if positive_scores is not None else None,
         "score_type": score_type,
         "metrics": evaluation_metrics,
         "confusion_matrix": matrix.tolist(),

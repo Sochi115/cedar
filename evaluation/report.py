@@ -201,6 +201,57 @@ def _threshold_table(evaluation: Mapping[str, Any]) -> str:
     )
 
 
+def _hard_example_analysis_section(evaluation: Mapping[str, Any]) -> str:
+    analysis = evaluation.get("hard_example_analysis")
+    if not isinstance(analysis, Mapping):
+        return ""
+    counts = analysis.get("error_counts", {})
+    missed_range = analysis.get("missed_fall_score_range", {})
+    rows = []
+    for error_name, label in (("false_negatives", "false negatives"), ("false_positives", "false positives")):
+        details = analysis.get(error_name, {})
+        rows.append(
+            "<tr>"
+            f"<th>{_escape(label)}</th>"
+            f"<td>{_format_value(counts.get(error_name))}</td>"
+            f"<td>{_json_text(details.get('by_group', {}))}</td>"
+            f"<td>{_json_text(details.get('by_activity', {}))}</td>"
+            f"<td>{_json_text(details.get('duration_buckets', {}))}</td>"
+            f"<td>{_json_text(details.get('signal_quality', {}))}</td>"
+            "</tr>"
+        )
+    examples = analysis.get("missed_fall_examples", [])
+    example_rows = []
+    for example in examples:
+        example_rows.append(
+            "<tr>"
+            f"<td>{_escape(example.get('observation_id'))}</td>"
+            f"<td>{_escape(example.get('group_id'))}</td>"
+            f"<td>{_escape(example.get('activity'))}</td>"
+            f"<td>{_format_value(example.get('score'))}</td>"
+            f"<td>{_format_value(example.get('duration_seconds'))}</td>"
+            f"<td>{_json_text(example.get('signal_quality', {}))}</td>"
+            "</tr>"
+        )
+    examples_table = ""
+    if example_rows:
+        examples_table = (
+            "<h4>Missed-fall observation examples, lowest score first</h4>"
+            "<table class='metrics'><thead><tr><th>observation</th><th>group</th>"
+            "<th>activity</th><th>score</th><th>duration (s)</th><th>signal quality</th></tr></thead>"
+            f"<tbody>{''.join(example_rows)}</tbody></table>"
+        )
+    return (
+        "<h3>Hard-example diagnostics</h3>"
+        "<p class='note'>Diagnostic-only analysis of finalized predictions; excluded from model and threshold selection.</p>"
+        f"<p>Missed-fall score range: {_json_text(missed_range)}; "
+        f"source run: {_escape(analysis.get('source_run_id'))}</p>"
+        "<table class='metrics'><thead><tr><th>error type</th><th>count</th>"
+        "<th>by group</th><th>by activity</th><th>duration buckets</th><th>signal quality</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>{examples_table}"
+    )
+
+
 def _evaluation_section(name: str, evaluation: Mapping[str, Any], primary: bool) -> str:
     metrics = evaluation.get("metrics", {})
     title = f"Evaluation: {_escape(name)}"
@@ -216,7 +267,8 @@ def _evaluation_section(name: str, evaluation: Mapping[str, Any], primary: bool)
         f"{_averages_table(metrics)}"
         f"{_group_metrics_table(evaluation)}"
         f"{_score_distribution_table(evaluation)}"
-        f"{_threshold_table(evaluation)}</section>"
+        f"{_threshold_table(evaluation)}"
+        f"{_hard_example_analysis_section(evaluation)}</section>"
     )
 
 
