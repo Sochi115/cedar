@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .core import load_evaluation_result
+from .report import render_metric_guide
 
 METRICS = (
     ("accuracy", "Accuracy"),
@@ -155,6 +156,27 @@ def _run_label(run: ComparisonRun) -> str:
     return str(run.result.get("run_id", run.result_path.stem))
 
 
+def _data_source_label(run: ComparisonRun) -> str:
+    source = run.result.get("data_source", {})
+    if isinstance(source, dict):
+        source_type = source.get("type")
+        if source_type == "duration_normalized_dataset":
+            return "Duration-normalized persisted data"
+        if source_type == "raw_recordings":
+            return "Raw recordings"
+        if source_type:
+            return str(source_type)
+    return "Not recorded"
+
+
+def _augmentation_label(run: ComparisonRun) -> str:
+    augmentation = run.result.get("augmentation", {})
+    if not isinstance(augmentation, dict) or not augmentation.get("enabled"):
+        return "None"
+    families = augmentation.get("families", [])
+    return ", ".join(str(family) for family in families) or "Enabled"
+
+
 def _leader(runs: tuple[ComparisonRun, ...], metric: str) -> tuple[str, float] | None:
     values = []
     for run in runs:
@@ -274,6 +296,8 @@ def _run_details(run: ComparisonRun, output_path: Path) -> str:
         ("Task", task),
         ("Features", result.get("features", {})),
         ("Preprocessing", result.get("preprocessing", {})),
+        ("Data source", _data_source_label(run)),
+        ("Augmentation", _augmentation_label(run)),
         ("Split", split),
         ("Evaluation split", result.get("evaluation_split")),
         ("Individual report", _report_link(run, output_path)),
@@ -302,7 +326,16 @@ def render_comparison_report(
         warning_html = f"<section class='warnings'><h2>Compatibility warnings</h2><ul>{items}</ul></section>"
 
     header = "".join(
-        f"<th>{_escape(label)}</th>" for _, label in (("run", "Run"), ("report", "Report"), ("family", "Model family"), ("dataset", "Dataset"), *METRICS)
+        f"<th>{_escape(label)}</th>"
+        for _, label in (
+            ("run", "Run"),
+            ("report", "Report"),
+            ("family", "Model family"),
+            ("source", "Data source"),
+            ("augmentation", "Augmentation"),
+            ("dataset", "Dataset"),
+            *METRICS,
+        )
     )
     body = []
     for run in runs:
@@ -313,6 +346,8 @@ def render_comparison_report(
             _escape(result.get("run_id", run.result_path.stem)),
             _report_link(run, destination),
             _display(model.get("family")),
+            _escape(_data_source_label(run)),
+            _escape(_augmentation_label(run)),
             _escape(_dataset_name(run)),
         ]
         row.extend(_metric_display(_metric_value(run, name)) for name, _ in METRICS)
@@ -345,11 +380,15 @@ a {{ color: #1769aa; }}
 .analysis li {{ margin: .35rem 0; }}
 summary {{ cursor: pointer; font-weight: 600; }}
 .note {{ color: #5f6368; }}
+.metric-guide summary {{ cursor: pointer; font-weight: 600; }}
+.metric-guide dt {{ margin-top: .5rem; font-weight: 600; }}
+.metric-guide dd {{ margin: .15rem 0 0 1rem; }}
 </style>
 </head>
 <body>
 <h1>Evaluation comparison</h1>
 <p class="note">Generated from model-agnostic evaluation result artifacts. Metrics use each run's primary evaluation split.</p>
+{render_metric_guide()}
 {warning_html}
 {analysis}
 <section class="comparison">

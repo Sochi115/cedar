@@ -76,11 +76,19 @@ def _write_run(root: Path, result: dict) -> Path:
 def test_comparison_report_indexes_runs_and_displays_metadata_and_metrics(
     tmp_path: Path,
 ) -> None:
-    first = _write_run(tmp_path, _result(model_family="svm", dataset_name="WiFall"))
-    second = _write_run(
-        tmp_path,
-        _result(model_family="random_forest", dataset_name="WiFall"),
-    )
+    first_result = _result(model_family="svm", dataset_name="WiFall")
+    first_result["data_source"] = {
+        "type": "duration_normalized_dataset",
+        "path": "duration-normalized-v1",
+    }
+    first_result["augmentation"] = {
+        "enabled": False,
+        "families": [],
+    }
+    first = _write_run(tmp_path, first_result)
+    second_result = _result(model_family="random_forest", dataset_name="WiFall")
+    second_result["data_source"] = {"type": "raw_recordings"}
+    second = _write_run(tmp_path, second_result)
     output = tmp_path / "comparison" / "report.html"
 
     render_comparison_report_file([first, second], output)
@@ -88,6 +96,8 @@ def test_comparison_report_indexes_runs_and_displays_metadata_and_metrics(
     html = output.read_text(encoding="utf-8")
     assert "Evaluation comparison" in html
     assert "Analysis and summary" in html
+    assert "Metric meanings in plain English" in html
+    assert "Of all real falls, how many the model caught." in html
     assert "Metric leaders" in html
     assert "Human interpretation" in html
     assert "Window-size analysis" in html
@@ -97,6 +107,9 @@ def test_comparison_report_indexes_runs_and_displays_metadata_and_metrics(
     assert "random_forest-run" in html
     assert "training.svm" in html
     assert "training.random_forest" in html
+    assert "Data source" in html
+    assert "Duration-normalized persisted data" in html
+    assert "Raw recordings" in html
     assert "svm-features" in html
     assert "random_forest-features" in html
     assert "Accuracy" in html

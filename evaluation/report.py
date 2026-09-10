@@ -10,6 +10,35 @@ from typing import Any
 
 from .core import load_evaluation_result
 
+_METRIC_GUIDE = (
+    ("Accuracy", "How often the model was correct overall."),
+    ("Balanced accuracy", "The average of fall recall and non-fall specificity; useful when classes are uneven."),
+    ("Precision", "Of all fall alerts, how many were real falls."),
+    ("Recall / sensitivity", "Of all real falls, how many the model caught."),
+    ("Specificity", "Of all real non-falls, how many the model correctly ignored."),
+    ("False-positive rate", "Of all real non-falls, how many became false alarms."),
+    ("F1", "A single score balancing precision and recall; high only when both are good."),
+    ("ROC-AUC", "How well the model ranks falls above non-falls across possible thresholds."),
+    ("PR-AUC", "How well precision and recall stay balanced across possible thresholds."),
+    ("Support", "The number of observations used for a metric."),
+)
+
+
+def render_metric_guide() -> str:
+    """Return a collapsed plain-English guide shared by evaluation reports."""
+
+    entries = "".join(
+        f"<dt>{_escape(name)}</dt><dd>{_escape(description)}</dd>"
+        for name, description in _METRIC_GUIDE
+    )
+    return (
+        "<details class='metric-guide'>"
+        "<summary>Metric meanings in plain English</summary>"
+        "<p>For this fall-detection report, fall is the positive class.</p>"
+        f"<dl>{entries}</dl>"
+        "</details>"
+    )
+
 
 def _escape(value: Any) -> str:
     return html.escape(str(value), quote=True)
@@ -315,11 +344,15 @@ td {{ white-space: pre-wrap; word-break: break-word; }}
 small {{ color: #5f6368; }}
 .badge {{ font-size: .7em; background: #d7f0da; color: #176b2c; padding: .2em .5em; border-radius: 1em; vertical-align: middle; }}
 .note {{ color: #5f6368; }}
+.metric-guide summary {{ cursor: pointer; font-weight: 600; }}
+.metric-guide dt {{ margin-top: .5rem; font-weight: 600; }}
+.metric-guide dd {{ margin: .15rem 0 0 1rem; }}
 </style>
 </head>
 <body>
 <h1>Evaluation report: {title}</h1>
 <p class="note">This report is generated from a model-agnostic evaluation result artifact.</p>
+{render_metric_guide()}
 {metadata}
 {''.join(sections)}
 </body>

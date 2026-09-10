@@ -101,6 +101,8 @@ def test_generic_result_round_trip_and_html_rendering(tmp_path: Path) -> None:
     assert "Example dataset" in html
     assert "Example model" in html
     assert "Confusion matrix" in html
+    assert "Metric meanings in plain English" in html
+    assert "Of all real falls, how many the model caught." in html
     assert "50.0%" in html
     assert "Not available" in html
     assert "Example classification" in html
