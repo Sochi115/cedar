@@ -25,6 +25,8 @@ Improve WiFall fall detection with a separate SVM training pipeline, train a sep
 - [Analyze MLP fall-detection performance](completed/wifall-model-improvement-10-mlp-analysis.md)
 - [Train simple CNN fall detector](completed/wifall-model-improvement-11-cnn.md)
 - [Analyze CNN fall-detection performance](completed/wifall-model-improvement-12-cnn-analysis.md)
+- [Train simple LSTM on duration-normalized CSI](wifall-model-improvement-13-lstm-duration-normalized.md)
+- [Analyze LSTM fall-detection usefulness](wifall-model-improvement-14-lstm-analysis.md)
 
 ## Decisions so far
 
