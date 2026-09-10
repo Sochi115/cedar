@@ -23,6 +23,7 @@ from evaluation import (
 )
 
 from .audit import audit_wifall
+from .augmentation import CsiAugmentationConfig, augment_split_records
 from .diagnostics import recording_observations
 from .loader import DatasetFormatError, Recording, load_split_manifest
 from .training import load_split_records, validate_participant_splits
@@ -71,6 +72,7 @@ class CnnConfig:
     minimum_recall: float = 0.95
     feature: CnnFeatureConfig = field(default_factory=CnnFeatureConfig)
     random_state: int = 42
+    augmentation: CsiAugmentationConfig = field(default_factory=CsiAugmentationConfig)
 
     def __post_init__(self) -> None:
         if not self.channel_variants or any(
@@ -105,6 +107,7 @@ class CnnConfig:
             "minimum_recall": self.minimum_recall,
             "feature": self.feature.as_dict(),
             "random_state": self.random_state,
+            "augmentation": self.augmentation.as_dict(),
         }
 
 
@@ -369,6 +372,8 @@ def train_cnn(
     split_manifest: str | Path,
     output_dir: str | Path,
     config: CnnConfig | None = None,
+    *,
+    processed_dataset: str | Path | None = None,
 ) -> CnnRun:
     """Train, select, evaluate, and persist a small CNN pipeline."""
 
@@ -377,15 +382,21 @@ def train_cnn(
     output = Path(output_dir).expanduser()
     output.mkdir(parents=True, exist_ok=True)
     manifest = load_split_manifest(split_manifest)
-    split_records = load_split_records(root, manifest)
+    split_records = load_split_records(
+        root, manifest, processed_dataset=processed_dataset
+    )
     validate_participant_splits(split_records)
-    if not split_records["train"] or not split_records["validation"]:
+    augmentation_result = augment_split_records(split_records, config.augmentation)
+    fit_split_records = {
+        split: list(records) for split, records in augmentation_result.splits.items()
+    }
+    if not fit_split_records["train"] or not fit_split_records["validation"]:
         raise DatasetFormatError("CNN requires train and validation recordings")
 
     audit = audit_wifall(root)
     audit_path = output / "dataset_audit.json"
     audit_path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    selection_records = split_records["train"] + split_records["validation"]
+    selection_records = fit_split_records["train"] + fit_split_records["validation"]
     selection_tensors = np.stack([extract_cnn_tensor(record, config.feature) for _, _, record in selection_records])
     selection_labels = np.asarray([record.target for _, _, record in selection_records], dtype=object)
     selection_groups = [participant for participant, _, _ in selection_records]
@@ -481,6 +492,7 @@ def train_cnn(
             "CNN native sigmoid score",
         ],
         "fit_split": "train+validation_after_selection",
+        "augmentation": augmentation_result.metadata,
     }
     split_metadata = {
         "strategy": "participant-held-out",
@@ -498,6 +510,13 @@ def train_cnn(
         "features": feature_metadata,
         "preprocessing": preprocessing_metadata,
         "split": split_metadata,
+        "augmentation": augmentation_result.metadata,
+        "data_source": {
+            "type": "duration_normalized_dataset"
+            if processed_dataset is not None
+            else "raw_recordings",
+            "path": str(Path(processed_dataset)) if processed_dataset is not None else None,
+        },
     }
 
     evaluations: dict[str, dict[str, Any]] = {}
@@ -541,6 +560,8 @@ def train_cnn(
     primary = evaluations[primary_split]
     artifact = evaluation_artifacts[primary_split] | {
         "evaluation_split": primary_split,
+        "augmentation": augmentation_result.metadata,
+        "data_source": metadata["data_source"],
         "evaluations": evaluations,
         "metrics": primary["metrics"],
         "confusion_matrix": primary["confusion_matrix"],

@@ -17,6 +17,7 @@ from .loader import (
     summarize_dataset,
 )
 from .mlp import train_mlp
+from .processed import DurationNormalizedConfig, build_duration_normalized_dataset
 from .random_forest import train_random_forest
 from .svm import train_svm
 
@@ -46,16 +47,28 @@ def _build_parser() -> argparse.ArgumentParser:
     improved.add_argument("dataset_root", type=Path)
     improved.add_argument("split_manifest", type=Path)
     improved.add_argument("output_dir", type=Path)
+    improved.add_argument("--processed-dataset", type=Path)
 
     mlp = subparsers.add_parser("train-mlp", help="train and evaluate a small MLP")
     mlp.add_argument("dataset_root", type=Path)
     mlp.add_argument("split_manifest", type=Path)
     mlp.add_argument("output_dir", type=Path)
 
+    preprocess = subparsers.add_parser(
+        "preprocess-duration-normalized",
+        help="persist duration-normalized, sectioned CSI data",
+    )
+    preprocess.add_argument("dataset_root", type=Path)
+    preprocess.add_argument("split_manifest", type=Path)
+    preprocess.add_argument("output_dir", type=Path)
+    preprocess.add_argument("--sample-count", type=int, default=128)
+    preprocess.add_argument("--section-count", type=int, default=8)
+
     cnn = subparsers.add_parser("train-cnn", help="train and evaluate a small CNN")
     cnn.add_argument("dataset_root", type=Path)
     cnn.add_argument("split_manifest", type=Path)
     cnn.add_argument("output_dir", type=Path)
+    cnn.add_argument("--processed-dataset", type=Path)
 
     cnn_analysis = subparsers.add_parser(
         "analyze-cnn", help="analyze CNN errors and model complementarity"
@@ -72,6 +85,7 @@ def _build_parser() -> argparse.ArgumentParser:
     random_forest.add_argument("dataset_root", type=Path)
     random_forest.add_argument("split_manifest", type=Path)
     random_forest.add_argument("output_dir", type=Path)
+    random_forest.add_argument("--processed-dataset", type=Path)
 
     ensemble = subparsers.add_parser(
         "train-ensemble", help="blend improved SVM and Random Forest scores"
@@ -86,6 +100,21 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    if args.command == "preprocess-duration-normalized":
+        run = build_duration_normalized_dataset(
+            args.dataset_root,
+            args.split_manifest,
+            args.output_dir,
+            DurationNormalizedConfig(
+                sample_count=args.sample_count,
+                section_count=args.section_count,
+            ),
+        )
+        print(f"Wrote processed CSI: {run.data_path}")
+        print(f"Wrote metadata: {run.metadata_path}")
+        print(json.dumps(run.counts, indent=2, sort_keys=True))
+        return 0
+
     if args.command == "summarize":
         summary = summarize_dataset(args.dataset_root)
         print(json.dumps(summary.as_dict(), indent=2, sort_keys=True))
@@ -110,7 +139,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "train-improved-svm":
-        run = train_improved_svm(args.dataset_root, args.split_manifest, args.output_dir)
+        run = train_improved_svm(
+            args.dataset_root,
+            args.split_manifest,
+            args.output_dir,
+            processed_dataset=args.processed_dataset,
+        )
         print(f"Wrote model: {run.model_path}")
         print(f"Wrote audit: {run.audit_path}")
         print(f"Wrote run artifact: {run.artifact_path}")
@@ -126,7 +160,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "train-cnn":
-        run = train_cnn(args.dataset_root, args.split_manifest, args.output_dir)
+        run = train_cnn(
+            args.dataset_root,
+            args.split_manifest,
+            args.output_dir,
+            processed_dataset=args.processed_dataset,
+        )
         print(f"Wrote model: {run.model_path}")
         print(f"Wrote audit: {run.audit_path}")
         print(f"Wrote run artifact: {run.artifact_path}")
@@ -155,7 +194,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote report: {run.report_path}")
         return 0
 
-    run = train_random_forest(args.dataset_root, args.split_manifest, args.output_dir)
+    run = train_random_forest(
+        args.dataset_root,
+        args.split_manifest,
+        args.output_dir,
+        processed_dataset=args.processed_dataset,
+    )
     print(f"Wrote model: {run.model_path}")
     print(f"Wrote audit: {run.audit_path}")
     print(f"Wrote run artifact: {run.artifact_path}")

@@ -22,6 +22,7 @@ from evaluation import (
 )
 
 from .audit import audit_wifall
+from .augmentation import CsiAugmentationConfig, augment_split_records
 from .diagnostics import recording_observations
 from .loader import (
     DatasetFormatError,
@@ -58,6 +59,7 @@ class ImprovedSvmConfig:
     class_weight: str = "balanced"
     feature: ImprovedFeatureConfig = ImprovedFeatureConfig()
     threshold_policy: str = "maximize_validation_f1_then_sensitivity"
+    augmentation: CsiAugmentationConfig = field(default_factory=CsiAugmentationConfig)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -67,6 +69,7 @@ class ImprovedSvmConfig:
             "class_weight": self.class_weight,
             "feature": self.feature.as_dict(),
             "threshold_policy": self.threshold_policy,
+            "augmentation": self.augmentation.as_dict(),
         }
 
 
@@ -177,8 +180,17 @@ def extract_improved_features(
 
 
 def _load_split_records(
-    dataset_root: Path, manifest: dict[str, Any]
+    dataset_root: Path,
+    manifest: dict[str, Any],
+    *,
+    processed_dataset: str | Path | None = None,
 ) -> dict[str, list[tuple[str, str, Recording]]]:
+    if processed_dataset is not None:
+        from .training import load_split_records
+
+        return load_split_records(
+            dataset_root, manifest, processed_dataset=processed_dataset
+        )
     references = {reference.recording_id: reference for reference in discover_recordings(dataset_root)}
     split_records: dict[str, list[tuple[str, str, Recording]]] = {split: [] for split in SPLITS}
     for entry in manifest["recordings"]:
@@ -330,6 +342,8 @@ def train_improved_svm(
     split_manifest: str | Path,
     output_dir: str | Path,
     config: ImprovedSvmConfig | None = None,
+    *,
+    processed_dataset: str | Path | None = None,
 ) -> ImprovedSvmRun:
     """Train improved SVM and persist model, result, audit, and HTML report."""
 
@@ -338,14 +352,20 @@ def train_improved_svm(
     output = Path(output_dir).expanduser()
     output.mkdir(parents=True, exist_ok=True)
     manifest = load_split_manifest(split_manifest)
-    split_records = _load_split_records(root, manifest)
+    split_records = _load_split_records(
+        root, manifest, processed_dataset=processed_dataset
+    )
     _validate_participant_splits(split_records)
+    augmentation_result = augment_split_records(split_records, config.augmentation)
+    fit_split_records = {
+        split: list(records) for split, records in augmentation_result.splits.items()
+    }
     audit = audit_wifall(root)
     audit_path = output / "dataset_audit.json"
     audit_path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    train_records = split_records["train"]
-    validation_records = split_records["validation"]
+    train_records = fit_split_records["train"]
+    validation_records = fit_split_records["validation"]
     if not train_records or not validation_records:
         raise DatasetFormatError("Improved SVM requires train and validation recordings")
     train_features = np.vstack(
@@ -420,6 +440,7 @@ def train_improved_svm(
             "RBF SVC",
         ],
         "fit_split": "train",
+        "augmentation": augmentation_result.metadata,
     }
     split_metadata = {
         "strategy": "participant-held-out",
@@ -435,6 +456,13 @@ def train_improved_svm(
         "features": feature_metadata,
         "preprocessing": preprocessing_metadata,
         "split": split_metadata,
+        "augmentation": augmentation_result.metadata,
+        "data_source": {
+            "type": "duration_normalized_dataset"
+            if processed_dataset is not None
+            else "raw_recordings",
+            "path": str(Path(processed_dataset)) if processed_dataset is not None else None,
+        },
     }
     evaluations: dict[str, dict[str, Any]] = {}
     for split, records in split_records.items():
@@ -483,6 +511,8 @@ def train_improved_svm(
     primary = evaluations[primary_split]
     artifact = result | {
         "evaluation_split": primary_split,
+        "augmentation": augmentation_result.metadata,
+        "data_source": metadata["data_source"],
         "evaluations": evaluations,
         "metrics": primary["metrics"],
         "confusion_matrix": primary["confusion_matrix"],

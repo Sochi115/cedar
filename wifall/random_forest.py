@@ -32,6 +32,7 @@ from evaluation import (
 )
 
 from .audit import audit_wifall
+from .augmentation import CsiAugmentationConfig, augment_split_records
 from .diagnostics import recording_observations
 from .improved_svm import ImprovedFeatureConfig
 from .loader import DatasetFormatError, Recording, load_split_manifest
@@ -108,6 +109,7 @@ class RandomForestConfig:
     calibration_method: str = "sigmoid"
     threshold_policy: str = "maximize_grouped_validation_f1_then_sensitivity"
     minimum_recall: float = 0.9
+    augmentation: CsiAugmentationConfig = field(default_factory=CsiAugmentationConfig)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -125,6 +127,7 @@ class RandomForestConfig:
             "calibration_method": self.calibration_method,
             "threshold_policy": self.threshold_policy,
             "minimum_recall": self.minimum_recall,
+            "augmentation": self.augmentation.as_dict(),
         }
 
     def feature_configs(self) -> tuple[RandomForestFeatureConfig, ...]:
@@ -580,6 +583,8 @@ def train_random_forest(
     split_manifest: str | Path,
     output_dir: str | Path,
     config: RandomForestConfig | None = None,
+    *,
+    processed_dataset: str | Path | None = None,
 ) -> RandomForestRun:
     """Train, threshold, evaluate, and persist a separate Random Forest run."""
 
@@ -588,14 +593,20 @@ def train_random_forest(
     output = Path(output_dir).expanduser()
     output.mkdir(parents=True, exist_ok=True)
     manifest = load_split_manifest(split_manifest)
-    split_records = load_split_records(root, manifest)
+    split_records = load_split_records(
+        root, manifest, processed_dataset=processed_dataset
+    )
     validate_participant_splits(split_records)
+    augmentation_result = augment_split_records(split_records, config.augmentation)
+    fit_split_records = {
+        split: list(records) for split, records in augmentation_result.splits.items()
+    }
 
     audit = audit_wifall(root)
     audit_path = output / "dataset_audit.json"
     audit_path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    selection_records = split_records["train"] + split_records["validation"]
+    selection_records = fit_split_records["train"] + fit_split_records["validation"]
     if not selection_records:
         raise DatasetFormatError("Random Forest requires non-test selection recordings")
     feature_configs = config.feature_configs()
@@ -803,6 +814,7 @@ def train_random_forest(
             f"{config.calibration_method} score calibration",
         ],
         "fit_split": "train+validation",
+        "augmentation": augmentation_result.metadata,
     }
     split_metadata = {
         "strategy": "participant-held-out",
@@ -820,6 +832,13 @@ def train_random_forest(
         "features": feature_metadata,
         "preprocessing": preprocessing_metadata,
         "split": split_metadata,
+        "augmentation": augmentation_result.metadata,
+        "data_source": {
+            "type": "duration_normalized_dataset"
+            if processed_dataset is not None
+            else "raw_recordings",
+            "path": str(Path(processed_dataset)) if processed_dataset is not None else None,
+        },
     }
 
     evaluations: dict[str, dict[str, Any]] = {}
@@ -897,6 +916,8 @@ def train_random_forest(
         )
     artifact = evaluation_artifacts[primary_split] | {
         "evaluation_split": primary_split,
+        "augmentation": augmentation_result.metadata,
+        "data_source": metadata["data_source"],
         "evaluations": evaluations,
         "metrics": primary["metrics"],
         "confusion_matrix": primary["confusion_matrix"],

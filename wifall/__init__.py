@@ -1,6 +1,13 @@
 """WiFall dataset loading and participant-held-out split utilities."""
 
 from .audit import audit_wifall
+from .augmentation import (
+    SUPPORTED_AUGMENTATIONS,
+    AugmentationResult,
+    CsiAugmentationConfig,
+    augment_recording,
+    augment_split_records,
+)
 from .cnn import (
     CnnConfig,
     CnnFeatureConfig,
@@ -49,6 +56,14 @@ from .mlp import (
     select_mlp_threshold,
     train_mlp,
 )
+from .processed import (
+    DurationNormalizedConfig,
+    DurationNormalizedDataset,
+    DurationNormalizedDatasetRun,
+    build_duration_normalized_dataset,
+    duration_normalize_recording,
+    load_duration_normalized_dataset,
+)
 from .random_forest import (
     RandomForestConfig,
     RandomForestFeatureConfig,
@@ -73,13 +88,19 @@ from .svm import (
 )
 
 __all__ = [
+    "SUPPORTED_AUGMENTATIONS",
+    "AugmentationResult",
     "CnnAnalysisRun",
     "CnnConfig",
     "CnnFeatureConfig",
     "CnnRun",
+    "CsiAugmentationConfig",
     "CsiParseError",
     "DatasetFormatError",
     "DatasetSummary",
+    "DurationNormalizedConfig",
+    "DurationNormalizedDataset",
+    "DurationNormalizedDatasetRun",
     "EnsembleConfig",
     "EnsembleRun",
     "FeatureConfig",
@@ -108,7 +129,11 @@ __all__ = [
     "analyze_cnn_runs",
     "analyze_random_forest_errors",
     "audit_wifall",
+    "augment_recording",
+    "augment_split_records",
+    "build_duration_normalized_dataset",
     "discover_recordings",
+    "duration_normalize_recording",
     "extract_cnn_tensor",
     "extract_improved_features",
     "extract_mlp_features",
@@ -116,6 +141,7 @@ __all__ = [
     "extract_recording_features",
     "generate_split_manifest",
     "load_cnn",
+    "load_duration_normalized_dataset",
     "load_improved_svm",
     "load_mlp",
     "load_random_forest",
