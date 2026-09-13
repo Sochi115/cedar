@@ -230,6 +230,42 @@ def _threshold_table(evaluation: Mapping[str, Any]) -> str:
     )
 
 
+def _alerting_section(evaluation: Mapping[str, Any]) -> str:
+    alerting = evaluation.get("alerting")
+    if not isinstance(alerting, Mapping):
+        return ""
+    summary = alerting.get("summary", {})
+    rows = "".join(
+        f"<tr><th>{_escape(key)}</th><td>{_format_value(value)}</td></tr>"
+        for key, value in (
+            ("fall alert rate", summary.get("fall_alert_rate")),
+            ("false-alarm rate", summary.get("false_alarm_rate")),
+            ("median first alert sample", summary.get("median_first_alert_sample")),
+            ("minimum first alert sample", summary.get("minimum_first_alert_sample")),
+            ("maximum first alert sample", summary.get("maximum_first_alert_sample")),
+            ("median first alert seconds", summary.get("median_first_alert_seconds")),
+            ("minimum first alert seconds", summary.get("minimum_first_alert_seconds")),
+            ("maximum first alert seconds", summary.get("maximum_first_alert_seconds")),
+            ("alert count", summary.get("alert_count")),
+        )
+    )
+    contract = {
+        key: alerting.get(key)
+        for key in (
+            "causal",
+            "alert_cadence_samples",
+            "max_lookback_samples",
+            "warmup_samples",
+            "state_reset",
+        )
+    }
+    return (
+        "<h3>Real-time alert behavior</h3>"
+        f"<p>Contract: {_json_text(contract)}</p>"
+        f"<table class='metrics'>{rows}</table>"
+    )
+
+
 def _hard_example_analysis_section(evaluation: Mapping[str, Any]) -> str:
     analysis = evaluation.get("hard_example_analysis")
     if not isinstance(analysis, Mapping):
@@ -297,6 +333,7 @@ def _evaluation_section(name: str, evaluation: Mapping[str, Any], primary: bool)
         f"{_group_metrics_table(evaluation)}"
         f"{_score_distribution_table(evaluation)}"
         f"{_threshold_table(evaluation)}"
+        f"{_alerting_section(evaluation)}"
         f"{_hard_example_analysis_section(evaluation)}</section>"
     )
 

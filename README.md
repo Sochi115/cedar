@@ -254,7 +254,40 @@ uv run python -m wifall.cli train-cnn \
 
 Outputs include `model.joblib`, `run.json`, `dataset_audit.json`, and self-contained `report.html`.
 
-## 10. Blend improved SVM and Random Forest
+## 10. Train LSTM on duration-normalized CSI
+
+Train a small participant-held-out LSTM from persisted duration-normalized sequences. Architecture and threshold selection use grouped non-test validation; test participants remain held out until final evaluation:
+
+```bash
+uv run python -m wifall.cli train-lstm \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json \
+  data/processed/wifall/lstm-duration-normalized-run \
+  --processed-dataset data/processed/wifall/duration-normalized-v1 \
+  --hidden-size 32 \
+  --layer-count 1 \
+  --dropout 0.1 \
+  --epochs 20 \
+  --batch-size 32 \
+  --seed 42
+```
+
+Each normalized-time sequence has shape `sample × subcarrier` (`128 × 52` by default). LSTM inference uses a causal rolling window (`32` samples by default), evaluates every new sample, and resets its stateless window at each recording or stream session. Outputs include `model.joblib`, `run.json`, `dataset_audit.json`, and self-contained `report.html`. Reports include warmup, alert latency, and false-alarm behavior.
+
+Analyze LSTM against compatible duration-normalized CNN, improved SVM, and Random Forest runs:
+
+```bash
+uv run python -m wifall.cli analyze-lstm \
+  data/processed/wifall/lstm-analysis \
+  data/processed/wifall/lstm-duration-normalized-run \
+  data/processed/wifall/cnn-duration-normalized-run \
+  data/processed/wifall/improved-svm-duration-normalized-run \
+  data/processed/wifall/random-forest-duration-normalized-run
+```
+
+The analysis reports validation and held-out test metrics, per-participant failures, error overlap, complementarity, validation-only operating points, and an adopt/investigate/reject recommendation.
+
+## 11. Blend improved SVM and Random Forest
 
 Create calibrated ensemble scores. Calibration fits use train and validation artifacts; blend weight and threshold use grouped validation only. Test participants are evaluated after selection.
 
@@ -278,7 +311,7 @@ uv run python -m evaluation.comparison \
   data/processed/wifall/ensemble-run/run.json
 ```
 
-## 11. Generate static HTML report
+## 12. Generate static HTML report
 
 Render the JSON evaluation result as self-contained HTML:
 
@@ -296,7 +329,7 @@ evaluation-report \
   data/processed/wifall/svm-run/report.html
 ```
 
-## 12. View the report
+## 13. View the report
 
 On macOS:
 
@@ -327,7 +360,7 @@ The report shows:
 - ROC-AUC and PR-AUC when compatible scores exist
 - `Not available` for optional metrics that cannot be calculated
 
-## 13. Compare model runs
+## 14. Compare model runs
 
 Generate one offline comparison report from any valid generic run artifacts:
 
@@ -344,7 +377,7 @@ uv run python -m evaluation.comparison \
 
 The comparison report links each run's individual report, compares metrics and metadata, and warns when labels, tasks, datasets, or evaluation protocols differ. Future model families only need valid generic run artifacts.
 
-## 14. Analyze CNN complementarity
+## 15. Analyze CNN complementarity
 
 Analyze CNN errors, validation operating points, and complementary detections without selecting from test results:
 
@@ -373,6 +406,11 @@ uv run python -m wifall.cli split \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json
 
+uv run python -m wifall.cli preprocess-duration-normalized \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json \
+  data/processed/wifall/duration-normalized-v1
+
 uv run python -m wifall.cli train-svm \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
@@ -385,12 +423,14 @@ uv run python -m evaluation.cli \
 uv run python -m wifall.cli train-improved-svm \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
-  data/processed/wifall/improved-svm-run
+  data/processed/wifall/improved-svm-duration-normalized-run \
+  --processed-dataset data/processed/wifall/duration-normalized-v1
 
 uv run python -m wifall.cli train-random-forest \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
-  data/processed/wifall/random-forest-run
+  data/processed/wifall/random-forest-duration-normalized-run \
+  --processed-dataset data/processed/wifall/duration-normalized-v1
 
 uv run python -m wifall.cli train-mlp \
   data/raw/wifall/WiFall \
@@ -400,36 +440,52 @@ uv run python -m wifall.cli train-mlp \
 uv run python -m wifall.cli train-cnn \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
-  data/processed/wifall/cnn-run
+  data/processed/wifall/cnn-duration-normalized-run \
+  --processed-dataset data/processed/wifall/duration-normalized-v1
+
+uv run python -m wifall.cli train-lstm \
+  data/raw/wifall/WiFall \
+  data/processed/wifall/split.json \
+  data/processed/wifall/lstm-duration-normalized-run \
+  --processed-dataset data/processed/wifall/duration-normalized-v1
+
+uv run python -m wifall.cli analyze-lstm \
+  data/processed/wifall/lstm-analysis \
+  data/processed/wifall/lstm-duration-normalized-run \
+  data/processed/wifall/cnn-duration-normalized-run \
+  data/processed/wifall/improved-svm-duration-normalized-run \
+  data/processed/wifall/random-forest-duration-normalized-run
 
 uv run python -m wifall.cli train-ensemble \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
-  data/processed/wifall/improved-svm-run \
-  data/processed/wifall/random-forest-run \
+  data/processed/wifall/improved-svm-duration-normalized-run \
+  data/processed/wifall/random-forest-duration-normalized-run \
   data/processed/wifall/ensemble-run
 
 uv run python -m evaluation.comparison \
   data/processed/wifall/comparison/report.html \
   data/processed/wifall/svm-run/run.json \
-  data/processed/wifall/improved-svm-run/run.json \
-  data/processed/wifall/random-forest-run/run.json \
+  data/processed/wifall/improved-svm-duration-normalized-run/run.json \
+  data/processed/wifall/random-forest-duration-normalized-run/run.json \
   data/processed/wifall/mlp-run/run.json \
-  data/processed/wifall/cnn-run/run.json \
+  data/processed/wifall/cnn-duration-normalized-run/run.json \
   data/processed/wifall/ensemble-run/run.json
 
 uv run python -m wifall.cli analyze-cnn \
   data/processed/wifall/cnn-analysis \
-  data/processed/wifall/cnn-run \
-  data/processed/wifall/improved-svm-run \
-  data/processed/wifall/random-forest-run \
+  data/processed/wifall/cnn-duration-normalized-run \
+  data/processed/wifall/improved-svm-duration-normalized-run \
+  data/processed/wifall/random-forest-duration-normalized-run \
   data/processed/wifall/ensemble-run
 
 open data/processed/wifall/svm-run/report.html
-open data/processed/wifall/improved-svm-run/report.html
-open data/processed/wifall/random-forest-run/report.html
+open data/processed/wifall/improved-svm-duration-normalized-run/report.html
+open data/processed/wifall/random-forest-duration-normalized-run/report.html
 open data/processed/wifall/mlp-run/report.html
-open data/processed/wifall/cnn-run/report.html
+open data/processed/wifall/cnn-duration-normalized-run/report.html
+open data/processed/wifall/lstm-duration-normalized-run/report.html
+open data/processed/wifall/lstm-analysis/report.html
 open data/processed/wifall/ensemble-run/report.html
 open data/processed/wifall/comparison/report.html
 ```

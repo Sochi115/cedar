@@ -16,6 +16,8 @@ from .loader import (
     save_split_manifest,
     summarize_dataset,
 )
+from .lstm import LstmConfig, LstmFeatureConfig, train_lstm
+from .lstm_analysis import analyze_lstm_runs
 from .mlp import train_mlp
 from .processed import DurationNormalizedConfig, build_duration_normalized_dataset
 from .random_forest import train_random_forest
@@ -54,6 +56,30 @@ def _build_parser() -> argparse.ArgumentParser:
     mlp.add_argument("split_manifest", type=Path)
     mlp.add_argument("output_dir", type=Path)
 
+    lstm = subparsers.add_parser(
+        "train-lstm", help="train and evaluate an LSTM on duration-normalized CSI"
+    )
+    lstm.add_argument("dataset_root", type=Path)
+    lstm.add_argument("split_manifest", type=Path)
+    lstm.add_argument("output_dir", type=Path)
+    lstm.add_argument("--processed-dataset", type=Path, required=True)
+    lstm.add_argument("--hidden-size", type=int, default=32)
+    lstm.add_argument("--layer-count", type=int, default=1)
+    lstm.add_argument("--dropout", type=float, default=0.1)
+    lstm.add_argument("--optimizer", choices=("adam", "adamw"), default="adam")
+    lstm.add_argument("--epochs", type=int, default=20)
+    lstm.add_argument("--batch-size", type=int, default=32)
+    lstm.add_argument("--learning-rate", type=float, default=1e-3)
+    lstm.add_argument("--weight-decay", type=float, default=1e-4)
+    lstm.add_argument("--early-stopping-patience", type=int, default=5)
+    lstm.add_argument("--scheduler-patience", type=int, default=2)
+    lstm.add_argument("--scheduler-factor", type=float, default=0.5)
+    lstm.add_argument("--min-epochs", type=int, default=1)
+    lstm.add_argument("--causal-window", type=int, default=32)
+    lstm.add_argument("--window-stride", type=int, default=4)
+    lstm.add_argument("--minimum-recall", type=float, default=0.95)
+    lstm.add_argument("--seed", type=int, default=42)
+
     preprocess = subparsers.add_parser(
         "preprocess-duration-normalized",
         help="persist duration-normalized, sectioned CSI data",
@@ -69,6 +95,15 @@ def _build_parser() -> argparse.ArgumentParser:
     cnn.add_argument("split_manifest", type=Path)
     cnn.add_argument("output_dir", type=Path)
     cnn.add_argument("--processed-dataset", type=Path)
+
+    lstm_analysis = subparsers.add_parser(
+        "analyze-lstm", help="analyze LSTM errors and model complementarity"
+    )
+    lstm_analysis.add_argument("output_dir", type=Path)
+    lstm_analysis.add_argument("lstm_run", type=Path)
+    lstm_analysis.add_argument("cnn_run", type=Path)
+    lstm_analysis.add_argument("improved_svm_run", type=Path)
+    lstm_analysis.add_argument("random_forest_run", type=Path)
 
     cnn_analysis = subparsers.add_parser(
         "analyze-cnn", help="analyze CNN errors and model complementarity"
@@ -156,6 +191,49 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote model: {run.model_path}")
         print(f"Wrote audit: {run.audit_path}")
         print(f"Wrote run artifact: {run.artifact_path}")
+        print(f"Wrote report: {run.report_path}")
+        return 0
+
+    if args.command == "train-lstm":
+        run = train_lstm(
+            args.dataset_root,
+            args.split_manifest,
+            args.output_dir,
+            LstmConfig(
+                hidden_sizes=(args.hidden_size,),
+                layer_counts=(args.layer_count,),
+                dropout_values=(args.dropout,),
+                optimizer_names=(args.optimizer,),
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                learning_rate=args.learning_rate,
+                weight_decay=args.weight_decay,
+                early_stopping_patience=args.early_stopping_patience,
+                scheduler_patience=args.scheduler_patience,
+                scheduler_factor=args.scheduler_factor,
+                min_epochs=args.min_epochs,
+                minimum_recall=args.minimum_recall,
+                feature=LstmFeatureConfig(
+                    causal_window=args.causal_window,
+                    window_stride=args.window_stride,
+                ),
+                random_state=args.seed,
+            ),
+            processed_dataset=args.processed_dataset,
+        )
+        print(f"Wrote model: {run.model_path}")
+        print(f"Wrote audit: {run.audit_path}")
+        print(f"Wrote run artifact: {run.artifact_path}")
+        print(f"Wrote report: {run.report_path}")
+        return 0
+
+    if args.command == "analyze-lstm":
+        run = analyze_lstm_runs(
+            args.lstm_run,
+            (args.cnn_run, args.improved_svm_run, args.random_forest_run),
+            args.output_dir,
+        )
+        print(f"Wrote analysis artifact: {run.artifact_path}")
         print(f"Wrote report: {run.report_path}")
         return 0
 

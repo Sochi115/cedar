@@ -25,8 +25,13 @@ Improve WiFall fall detection with a separate SVM training pipeline, train a sep
 - [Analyze MLP fall-detection performance](completed/wifall-model-improvement-10-mlp-analysis.md)
 - [Train simple CNN fall detector](completed/wifall-model-improvement-11-cnn.md)
 - [Analyze CNN fall-detection performance](completed/wifall-model-improvement-12-cnn-analysis.md)
-- [Train simple LSTM on duration-normalized CSI](wifall-model-improvement-13-lstm-duration-normalized.md)
-- [Analyze LSTM fall-detection usefulness](wifall-model-improvement-14-lstm-analysis.md)
+- [Train simple LSTM on duration-normalized CSI](completed/wifall-model-improvement-13-lstm-duration-normalized.md)
+- [Analyze LSTM fall-detection usefulness](completed/wifall-model-improvement-14-lstm-analysis.md)
+- [Tune causal LSTM baseline for real-time alerts](completed/wifall-model-improvement-15-lstm-tuning.md)
+- [Evaluate stacked LSTM fall detector](wifall-model-improvement-16-stacked-lstm.md)
+- [Evaluate CNN-BiLSTM hybrid fall detector](wifall-model-improvement-17-cnn-bilstm-hybrid.md)
+- [Evaluate temporal convolutional network fall detector](wifall-model-improvement-18-temporal-convolutional-network.md)
+- [Evaluate small Transformer encoder fall detector](wifall-model-improvement-19-transformer-encoder.md)
 
 ## Decisions so far
 
@@ -44,4 +49,7 @@ Improve WiFall fall detection with a separate SVM training pipeline, train a sep
 - [Analyze MLP fall-detection performance](completed/wifall-model-improvement-10-mlp-analysis.md): MLP research closed as `wontfix`; safety-first operation has 0% specificity and no usable operating point.
 - [Train simple CNN fall detector](completed/wifall-model-improvement-11-cnn.md): CNN preserves temporal and subcarrier structure in a fixed-size tensor and uses grouped safety-oriented validation. Initial test recall is 93.75% with 9.375% specificity.
 - [Analyze CNN fall-detection performance](completed/wifall-model-improvement-12-cnn-analysis.md): CNN catches some falls missed by comparator models but has no useful validation operating point at 90%+ minimum participant recall; continue investigating rather than adopt.
+- [Train simple LSTM on duration-normalized CSI](completed/wifall-model-improvement-13-lstm-duration-normalized.md): LSTM training now consumes persisted duration-normalized sequences, selects architecture and threshold with participant-grouped non-test validation, and writes reproducible model, run, audit, and HTML report artifacts.
+- [Analyze LSTM fall-detection usefulness](completed/wifall-model-improvement-14-lstm-analysis.md): LSTM analysis compares compatible duration-normalized model runs, keeps recommendation logic validation-only, and rejects LSTM adoption because validation specificity trails the best comparator by more than 0.10 at 95% minimum participant recall.
+- [Tune causal LSTM baseline for real-time alerts](completed/wifall-model-improvement-15-lstm-tuning.md): LSTM now uses causal rolling windows with bounded lookback, validation-only early stopping and scheduling, optimizer candidates, and real-time alert diagnostics. Current run remains unsuitable due to a 100% false-alarm rate.
 - [Evaluate CSI Data Augmentation](completed/wifall-model-improvement-08-csi-augmentation.md): Reusable deterministic raw-CSI augmentation supports noise, temporal jitter, subcarrier dropout, and window perturbation while augmenting training records only; CNN, improved SVM, and Random Forest trainers persist augmentation metadata.
