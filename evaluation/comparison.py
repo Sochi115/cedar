@@ -160,10 +160,8 @@ def _data_source_label(run: ComparisonRun) -> str:
     source = run.result.get("data_source", {})
     if isinstance(source, dict):
         source_type = source.get("type")
-        if source_type == "duration_normalized_dataset":
-            return "Duration-normalized persisted data"
-        if source_type == "raw_recordings":
-            return "Raw recordings"
+        if source_type == "raw_timestamped_csi":
+            return "Raw timestamped CSI"
         if source_type:
             return str(source_type)
     return "Not recorded"

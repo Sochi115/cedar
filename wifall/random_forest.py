@@ -583,8 +583,6 @@ def train_random_forest(
     split_manifest: str | Path,
     output_dir: str | Path,
     config: RandomForestConfig | None = None,
-    *,
-    processed_dataset: str | Path | None = None,
 ) -> RandomForestRun:
     """Train, threshold, evaluate, and persist a separate Random Forest run."""
 
@@ -593,9 +591,7 @@ def train_random_forest(
     output = Path(output_dir).expanduser()
     output.mkdir(parents=True, exist_ok=True)
     manifest = load_split_manifest(split_manifest)
-    split_records = load_split_records(
-        root, manifest, processed_dataset=processed_dataset
-    )
+    split_records = load_split_records(root, manifest)
     validate_participant_splits(split_records)
     augmentation_result = augment_split_records(split_records, config.augmentation)
     fit_split_records = {
@@ -833,12 +829,7 @@ def train_random_forest(
         "preprocessing": preprocessing_metadata,
         "split": split_metadata,
         "augmentation": augmentation_result.metadata,
-        "data_source": {
-            "type": "duration_normalized_dataset"
-            if processed_dataset is not None
-            else "raw_recordings",
-            "path": str(Path(processed_dataset)) if processed_dataset is not None else None,
-        },
+        "data_source": {"type": "raw_timestamped_csi"},
     }
 
     evaluations: dict[str, dict[str, Any]] = {}

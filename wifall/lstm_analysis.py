@@ -33,8 +33,8 @@ def _load(path: str | Path) -> tuple[Path, dict[str, Any]]:
 def _check_compatible(runs: list[tuple[Path, dict[str, Any]]]) -> None:
     reference = runs[0][1]
     reference_source = reference.get("data_source", {}).get("type")
-    if reference_source != "duration_normalized_dataset":
-        raise ValueError("LSTM analysis requires duration-normalized source runs")
+    if reference_source != "raw_timestamped_csi":
+        raise ValueError("LSTM analysis requires raw timestamped CSI source runs")
     for _, result in runs[1:]:
         if result.get("dataset") != reference.get("dataset"):
             raise ValueError("Source datasets differ")
@@ -357,7 +357,7 @@ def analyze_lstm_runs(
     comparator_runs: tuple[str | Path, ...],
     output_dir: str | Path,
 ) -> LstmAnalysisRun:
-    """Analyze LSTM against duration-normalized CNN, SVM, and RF runs."""
+    """Analyze LSTM against compatible raw-CSI CNN, SVM, and RF runs."""
 
     paths_and_results = [_load(lstm_run)] + [_load(path) for path in comparator_runs]
     if len(paths_and_results) != 4:

@@ -88,52 +88,30 @@ The default split contains:
 
 Complete participants stay in one split. This prevents participant leakage.
 
-## 4. Persist duration-normalized sectioned CSI data
+## 4. Persist causal consecutive CSI windows
 
-Resample every recording onto an equal-elapsed-time grid, then persist fixed-shape sectioned CSI for reuse across model families:
+Assign participants to splits first, then create chronological windows inside each recording. Windows never cross recording boundaries and use only observed current and past rows:
 
 ```bash
-uv run python -m wifall.cli preprocess-duration-normalized \
+uv run python -m wifall.cli preprocess-causal-windows \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
-  data/processed/wifall/duration-normalized-v1 \
-  --sample-count 128 \
-  --section-count 8
+  data/processed/wifall/causal-windows-v1 \
+  --window-samples 32 \
+  --stride-samples 4
 ```
 
 Outputs:
 
 ```text
-data/processed/wifall/duration-normalized-v1/
+data/processed/wifall/causal-windows-v1/
 ├── data.npz
 └── metadata.json
 ```
 
-`data.npz` stores CSI shaped as `recording × section × samples × subcarrier`. Section boundaries represent normalized recording time, not fixed row counts. Metadata stores source split, durations, counts, and preprocessing configuration.
+`data.npz` stores raw CSI amplitude windows shaped as `window × samples × subcarrier`. Window labels inherit recording labels and are weak labels because WiFall does not mark exact fall onset. Metadata stores source recording IDs, participants, timestamps, boundaries, counts, and causal window configuration.
 
-Use persisted data with supported training pipelines:
-
-```bash
-uv run python -m wifall.cli train-cnn \
-  data/raw/wifall/WiFall \
-  data/processed/wifall/split.json \
-  data/processed/wifall/cnn-duration-normalized-run \
-  --processed-dataset data/processed/wifall/duration-normalized-v1
-
-uv run python -m wifall.cli train-improved-svm \
-  data/raw/wifall/WiFall \
-  data/processed/wifall/split.json \
-  data/processed/wifall/improved-svm-duration-normalized-run \
-  --processed-dataset data/processed/wifall/duration-normalized-v1
-
-uv run python -m wifall.cli train-random-forest \
-  data/raw/wifall/WiFall \
-  data/processed/wifall/split.json \
-  data/processed/wifall/random-forest-duration-normalized-run \
-  --processed-dataset data/processed/wifall/duration-normalized-v1
-```
-
-Training artifacts record processed dataset path and configuration. Raw recordings remain available for comparison.
+Training commands consume raw recordings directly. The persisted window artifact provides an auditable causal data view.
 
 ## 5. Train and evaluate the WiFall SVM
 
@@ -254,16 +232,18 @@ uv run python -m wifall.cli train-cnn \
 
 Outputs include `model.joblib`, `run.json`, `dataset_audit.json`, and self-contained `report.html`.
 
-## 10. Train LSTM on duration-normalized CSI
+## 10. Train causal LSTM on raw CSI windows
 
-Train a small participant-held-out LSTM from persisted duration-normalized sequences. Architecture and threshold selection use grouped non-test validation; test participants remain held out until final evaluation:
+Train a participant-held-out LSTM directly from raw chronological recordings. Architecture and threshold selection use grouped non-test validation; test participants remain held out until final evaluation:
 
 ```bash
 uv run python -m wifall.cli train-lstm \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
-  data/processed/wifall/lstm-duration-normalized-run \
-  --processed-dataset data/processed/wifall/duration-normalized-v1 \
+  data/processed/wifall/lstm-causal-run \
+  --causal-window-dataset data/processed/wifall/causal-windows-v1 \
+  --causal-window 32 \
+  --window-stride 4 \
   --hidden-size 32 \
   --layer-count 1 \
   --dropout 0.1 \
@@ -272,17 +252,17 @@ uv run python -m wifall.cli train-lstm \
   --seed 42
 ```
 
-Each normalized-time sequence has shape `sample × subcarrier` (`128 × 52` by default). LSTM inference uses a causal rolling window (`32` samples by default), evaluates every new sample, and resets its stateless window at each recording or stream session. Outputs include `model.joblib`, `run.json`, `dataset_audit.json`, and self-contained `report.html`. Reports include warmup, alert latency, and false-alarm behavior.
+Each input window contains consecutive raw CSI rows. LSTM inference uses only current and past samples, resets its stateless window at each recording or stream session, and records weak-label limitations. Outputs include `model.joblib`, `run.json`, `dataset_audit.json`, and self-contained `report.html`.
 
-Analyze LSTM against compatible duration-normalized CNN, improved SVM, and Random Forest runs:
+Analyze LSTM against compatible raw-CSI CNN, improved SVM, and Random Forest runs:
 
 ```bash
 uv run python -m wifall.cli analyze-lstm \
   data/processed/wifall/lstm-analysis \
-  data/processed/wifall/lstm-duration-normalized-run \
-  data/processed/wifall/cnn-duration-normalized-run \
-  data/processed/wifall/improved-svm-duration-normalized-run \
-  data/processed/wifall/random-forest-duration-normalized-run
+  data/processed/wifall/lstm-causal-run \
+  data/processed/wifall/cnn-run \
+  data/processed/wifall/improved-svm-run \
+  data/processed/wifall/random-forest-run
 ```
 
 The analysis reports validation and held-out test metrics, per-participant failures, error overlap, complementarity, validation-only operating points, and an adopt/investigate/reject recommendation.
@@ -406,10 +386,10 @@ uv run python -m wifall.cli split \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json
 
-uv run python -m wifall.cli preprocess-duration-normalized \
+uv run python -m wifall.cli preprocess-causal-windows \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
-  data/processed/wifall/duration-normalized-v1
+  data/processed/wifall/causal-windows-v1
 
 uv run python -m wifall.cli train-svm \
   data/raw/wifall/WiFall \
@@ -423,14 +403,12 @@ uv run python -m evaluation.cli \
 uv run python -m wifall.cli train-improved-svm \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
-  data/processed/wifall/improved-svm-duration-normalized-run \
-  --processed-dataset data/processed/wifall/duration-normalized-v1
+  data/processed/wifall/improved-svm-run
 
 uv run python -m wifall.cli train-random-forest \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
-  data/processed/wifall/random-forest-duration-normalized-run \
-  --processed-dataset data/processed/wifall/duration-normalized-v1
+  data/processed/wifall/random-forest-run
 
 uv run python -m wifall.cli train-mlp \
   data/raw/wifall/WiFall \
@@ -440,51 +418,49 @@ uv run python -m wifall.cli train-mlp \
 uv run python -m wifall.cli train-cnn \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
-  data/processed/wifall/cnn-duration-normalized-run \
-  --processed-dataset data/processed/wifall/duration-normalized-v1
+  data/processed/wifall/cnn-run
 
 uv run python -m wifall.cli train-lstm \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
-  data/processed/wifall/lstm-duration-normalized-run \
-  --processed-dataset data/processed/wifall/duration-normalized-v1
+  data/processed/wifall/lstm-causal-run
 
 uv run python -m wifall.cli analyze-lstm \
   data/processed/wifall/lstm-analysis \
-  data/processed/wifall/lstm-duration-normalized-run \
-  data/processed/wifall/cnn-duration-normalized-run \
-  data/processed/wifall/improved-svm-duration-normalized-run \
-  data/processed/wifall/random-forest-duration-normalized-run
+  data/processed/wifall/lstm-causal-run \
+  data/processed/wifall/cnn-run \
+  data/processed/wifall/improved-svm-run \
+  data/processed/wifall/random-forest-run
 
 uv run python -m wifall.cli train-ensemble \
   data/raw/wifall/WiFall \
   data/processed/wifall/split.json \
-  data/processed/wifall/improved-svm-duration-normalized-run \
-  data/processed/wifall/random-forest-duration-normalized-run \
+  data/processed/wifall/improved-svm-run \
+  data/processed/wifall/random-forest-run \
   data/processed/wifall/ensemble-run
 
 uv run python -m evaluation.comparison \
   data/processed/wifall/comparison/report.html \
   data/processed/wifall/svm-run/run.json \
-  data/processed/wifall/improved-svm-duration-normalized-run/run.json \
-  data/processed/wifall/random-forest-duration-normalized-run/run.json \
+  data/processed/wifall/improved-svm-run/run.json \
+  data/processed/wifall/random-forest-run/run.json \
   data/processed/wifall/mlp-run/run.json \
-  data/processed/wifall/cnn-duration-normalized-run/run.json \
+  data/processed/wifall/cnn-run/run.json \
   data/processed/wifall/ensemble-run/run.json
 
 uv run python -m wifall.cli analyze-cnn \
   data/processed/wifall/cnn-analysis \
-  data/processed/wifall/cnn-duration-normalized-run \
-  data/processed/wifall/improved-svm-duration-normalized-run \
-  data/processed/wifall/random-forest-duration-normalized-run \
+  data/processed/wifall/cnn-run \
+  data/processed/wifall/improved-svm-run \
+  data/processed/wifall/random-forest-run \
   data/processed/wifall/ensemble-run
 
 open data/processed/wifall/svm-run/report.html
-open data/processed/wifall/improved-svm-duration-normalized-run/report.html
-open data/processed/wifall/random-forest-duration-normalized-run/report.html
+open data/processed/wifall/improved-svm-run/report.html
+open data/processed/wifall/random-forest-run/report.html
 open data/processed/wifall/mlp-run/report.html
-open data/processed/wifall/cnn-duration-normalized-run/report.html
-open data/processed/wifall/lstm-duration-normalized-run/report.html
+open data/processed/wifall/cnn-run/report.html
+open data/processed/wifall/lstm-causal-run/report.html
 open data/processed/wifall/lstm-analysis/report.html
 open data/processed/wifall/ensemble-run/report.html
 open data/processed/wifall/comparison/report.html

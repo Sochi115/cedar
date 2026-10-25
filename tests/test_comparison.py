@@ -78,8 +78,7 @@ def test_comparison_report_indexes_runs_and_displays_metadata_and_metrics(
 ) -> None:
     first_result = _result(model_family="svm", dataset_name="WiFall")
     first_result["data_source"] = {
-        "type": "duration_normalized_dataset",
-        "path": "duration-normalized-v1",
+        "type": "raw_timestamped_csi",
     }
     first_result["augmentation"] = {
         "enabled": False,
@@ -87,7 +86,7 @@ def test_comparison_report_indexes_runs_and_displays_metadata_and_metrics(
     }
     first = _write_run(tmp_path, first_result)
     second_result = _result(model_family="random_forest", dataset_name="WiFall")
-    second_result["data_source"] = {"type": "raw_recordings"}
+    second_result["data_source"] = {"type": "raw_timestamped_csi"}
     second = _write_run(tmp_path, second_result)
     output = tmp_path / "comparison" / "report.html"
 
@@ -108,8 +107,8 @@ def test_comparison_report_indexes_runs_and_displays_metadata_and_metrics(
     assert "training.svm" in html
     assert "training.random_forest" in html
     assert "Data source" in html
-    assert "Duration-normalized persisted data" in html
-    assert "Raw recordings" in html
+    assert "Raw timestamped CSI" in html
+    assert html.count("Raw timestamped CSI") >= 2
     assert "svm-features" in html
     assert "random_forest-features" in html
     assert "Accuracy" in html

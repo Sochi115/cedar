@@ -57,7 +57,7 @@ def _artifact(
         "features": {"name": run_id},
         "preprocessing": {},
         "split": {"strategy": "participant-held-out"},
-        "data_source": {"type": "duration_normalized_dataset", "path": "duration-normalized"},
+        "data_source": {"type": "raw_timestamped_csi"},
         "evaluation_split": "test",
         "evaluations": evaluations,
         "metrics": {},

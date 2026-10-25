@@ -13,15 +13,8 @@ SPLITS = ("train", "validation", "test")
 def load_split_records(
     dataset_root: Path,
     manifest: dict[str, Any],
-    *,
-    processed_dataset: str | Path | None = None,
 ) -> dict[str, list[tuple[str, str, Recording]]]:
-    """Load raw or persisted duration-normalized recordings by split."""
-
-    if processed_dataset is not None:
-        from .processed import load_duration_normalized_dataset
-
-        return load_duration_normalized_dataset(processed_dataset).splits
+    """Load raw recordings by participant-held-out split."""
 
     references = {reference.recording_id: reference for reference in discover_recordings(dataset_root)}
     split_records: dict[str, list[tuple[str, str, Recording]]] = {split: [] for split in SPLITS}

@@ -182,15 +182,7 @@ def extract_improved_features(
 def _load_split_records(
     dataset_root: Path,
     manifest: dict[str, Any],
-    *,
-    processed_dataset: str | Path | None = None,
 ) -> dict[str, list[tuple[str, str, Recording]]]:
-    if processed_dataset is not None:
-        from .training import load_split_records
-
-        return load_split_records(
-            dataset_root, manifest, processed_dataset=processed_dataset
-        )
     references = {reference.recording_id: reference for reference in discover_recordings(dataset_root)}
     split_records: dict[str, list[tuple[str, str, Recording]]] = {split: [] for split in SPLITS}
     for entry in manifest["recordings"]:
@@ -342,8 +334,6 @@ def train_improved_svm(
     split_manifest: str | Path,
     output_dir: str | Path,
     config: ImprovedSvmConfig | None = None,
-    *,
-    processed_dataset: str | Path | None = None,
 ) -> ImprovedSvmRun:
     """Train improved SVM and persist model, result, audit, and HTML report."""
 
@@ -352,9 +342,7 @@ def train_improved_svm(
     output = Path(output_dir).expanduser()
     output.mkdir(parents=True, exist_ok=True)
     manifest = load_split_manifest(split_manifest)
-    split_records = _load_split_records(
-        root, manifest, processed_dataset=processed_dataset
-    )
+    split_records = _load_split_records(root, manifest)
     _validate_participant_splits(split_records)
     augmentation_result = augment_split_records(split_records, config.augmentation)
     fit_split_records = {
@@ -457,12 +445,7 @@ def train_improved_svm(
         "preprocessing": preprocessing_metadata,
         "split": split_metadata,
         "augmentation": augmentation_result.metadata,
-        "data_source": {
-            "type": "duration_normalized_dataset"
-            if processed_dataset is not None
-            else "raw_recordings",
-            "path": str(Path(processed_dataset)) if processed_dataset is not None else None,
-        },
+        "data_source": {"type": "raw_timestamped_csi"},
     }
     evaluations: dict[str, dict[str, Any]] = {}
     for split, records in split_records.items():
