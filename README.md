@@ -49,7 +49,7 @@ uv run python -m csi_bench.cnn_lstm data/raw/csi-bench \
   --hidden-size 64
 ```
 
-The LSTM receives 32 chronologically ordered CNN feature vectors per sample. It saves checkpoint, metrics, and held-out confusion-matrix report. Compare test results only after model selection is complete on validation. If baseline artifacts are unavailable or use different settings, retrain baseline with `python -m csi_bench.cnn` and a separate output directory.
+The LSTM receives 32 chronologically ordered CNN feature vectors per sample. Its regularized architecture applies spatial dropout inside residual blocks plus sequence and classifier-head dropout; AdamW uses weight decay `1e-3` by default. `ReduceLROnPlateau` already schedules learning rate from validation loss. Use `--user-split path/to/users.json` to assign `train_id`, `val_id`, and `test_id` user lists from JSON. It saves checkpoint, metrics, and held-out confusion-matrix report. Compare test results only after model selection is complete on validation. If baseline artifacts are unavailable or use different settings, retrain baseline with `python -m csi_bench.cnn` and a separate output directory.
 
 Train the CSI-Bench Random Forest baseline using its official splits:
 

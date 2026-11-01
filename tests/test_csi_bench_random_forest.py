@@ -1,4 +1,5 @@
 import argparse
+import json
 
 import numpy as np
 import torch
@@ -40,11 +41,15 @@ def test_train_saves_model_and_reports_validation_and_test(tmp_path, monkeypatch
         "val_id": Samples([0, 1]),
         "test_id": Samples([0, 1]),
     }
-    monkeypatch.setattr(
-        random_forest,
-        "load_task_datasets",
-        lambda *args: (tmp_path, ["Fall", "Nonfall"], datasets),
-    )
+    user_split = {"train_id": ["U1"], "val_id": ["U2"], "test_id": ["U3"]}
+    user_split_path = tmp_path / "user_split.json"
+    user_split_path.write_text(json.dumps(user_split), encoding="utf-8")
+
+    def load_split(*args, **kwargs):
+        assert kwargs["user_split"] == user_split
+        return tmp_path, ["Fall", "Nonfall"], datasets
+
+    monkeypatch.setattr(random_forest, "load_task_datasets", load_split)
     monkeypatch.setattr(
         random_forest,
         "build_random_forest",
@@ -59,6 +64,7 @@ def test_train_saves_model_and_reports_validation_and_test(tmp_path, monkeypatch
             task="FallDetection",
             data_key="CSI_amps",
             jobs=2,
+            user_split=user_split_path,
             output_dir=tmp_path / "run",
         )
     )
@@ -70,6 +76,9 @@ def test_train_saves_model_and_reports_validation_and_test(tmp_path, monkeypatch
     assert result["training_history"][-1]["trees"] == 5
     assert (tmp_path / "run" / "csi-bench-random-forest.joblib").is_file()
     assert (tmp_path / "run" / "run.json").is_file()
+    assert json.loads((tmp_path / "run" / "user_split.json").read_text()) == user_split
+    assert result["split"]["strategy"] == "user-held-out"
     report = (tmp_path / "run" / "report.html").read_text(encoding="utf-8")
     assert "Training and validation loss" in report
     assert "Held-out test confusion matrix" in report
+    assert "Data split: user-held-out" in report

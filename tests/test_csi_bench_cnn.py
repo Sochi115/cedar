@@ -18,15 +18,23 @@ def test_loads_csi_bench_hdf5_for_cnn(tmp_path):
     data_dir.mkdir()
 
     labels = {"fall-1": "Fall", "nonfall-1": "Nonfall", "fall-2": "Fall"}
+    users = {"fall-1": "U1", "nonfall-1": "U2", "fall-2": "U3"}
     rows = []
     for sample_id, label in labels.items():
         filepath = data_dir / f"{sample_id}.h5"
         with h5py.File(filepath, "w") as output:
             output["CSI_amps"] = np.arange(232 * 500, dtype=np.float32).reshape(232, 500, 1)
-        rows.append({"id": sample_id, "file_path": f"./sub_Human/{filepath.name}", "label": label})
+        rows.append(
+            {
+                "id": sample_id,
+                "file_path": f"./sub_Human/{filepath.name}",
+                "label": label,
+                "user": users[sample_id],
+            }
+        )
 
     with (metadata_dir / "sample_metadata.csv").open("w", newline="", encoding="utf-8") as output:
-        writer = csv.DictWriter(output, fieldnames=("id", "file_path", "label"))
+        writer = csv.DictWriter(output, fieldnames=("id", "file_path", "label", "user"))
         writer.writeheader()
         writer.writerows(rows)
     (metadata_dir / "label_mapping.json").write_text(
@@ -63,3 +71,12 @@ def test_loads_csi_bench_hdf5_for_cnn(tmp_path):
     assert "Training and validation loss" in report
     assert "Confusion matrix" in report
     assert report.count("data:image/png;base64,") == 2
+
+    _, _, held_out = load_task_datasets(
+        tmp_path,
+        "FallDetection",
+        user_split={"train_id": ["U1"], "val_id": ["U2"], "test_id": ["U3"]},
+    )
+    assert {row["user"] for row in held_out["train_id"].rows} == {"U1"}
+    assert {row["user"] for row in held_out["val_id"].rows} == {"U2"}
+    assert {row["user"] for row in held_out["test_id"].rows} == {"U3"}

@@ -25,8 +25,11 @@ from .cnn import (
 )
 
 MODEL_NAME = "csi-bench-cnn-lstm"
-MODEL_ARCHITECTURE = "deep_residual_cnn_lstm_v1"
+MODEL_ARCHITECTURE = "deep_residual_cnn_lstm_v3_residual_dropout"
 CNN_CHANNELS = 256
+CNN_RESIDUAL_DROPOUT = 0.1
+SEQUENCE_DROPOUT = 0.25
+HEAD_DROPOUT = 0.4
 
 
 class DeepCnnLstm(nn.Module):
@@ -34,27 +37,29 @@ class DeepCnnLstm(nn.Module):
 
     def __init__(self, class_count: int, hidden_size: int = 64) -> None:
         super().__init__()
-        self.cnn = DeepCnn(class_count)
+        self.cnn = DeepCnn(class_count, residual_dropout=CNN_RESIDUAL_DROPOUT)
         self.cnn.features[-1] = nn.Identity()
         self.cnn.classifier = nn.Identity()
+        self.sequence_dropout = nn.Dropout(SEQUENCE_DROPOUT)
         self.lstm = nn.LSTM(
             input_size=CNN_CHANNELS,
             hidden_size=hidden_size,
             num_layers=1,
             batch_first=True,
         )
-        self.dropout = nn.Dropout(0.2)
+        self.head_dropout = nn.Dropout(HEAD_DROPOUT)
         self.classifier = nn.Linear(hidden_size, class_count)
 
     def encode_sequence(self, values: torch.Tensor) -> torch.Tensor:
         """Return batch × time × channels features; retain temporal order."""
         feature_map = self.cnn.features(values)
-        return feature_map.mean(dim=-1).transpose(1, 2)
+        sequence = feature_map.mean(dim=-1).transpose(1, 2)
+        return self.sequence_dropout(sequence)
 
     def forward(self, values: torch.Tensor) -> torch.Tensor:
         sequence = self.encode_sequence(values)
         _, (hidden, _) = self.lstm(sequence)
-        return self.classifier(self.dropout(hidden[-1]))
+        return self.classifier(self.head_dropout(hidden[-1]))
 
 
 def _device(name: str) -> torch.device:
@@ -78,9 +83,21 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     device = _device(args.device)
+    user_split = None
+    if args.user_split is not None:
+        with args.user_split.open(encoding="utf-8") as source:
+            user_split = json.load(source)
     task_dir, class_names, datasets = load_task_datasets(
-        args.dataset_root, args.task, args.data_key
+        args.dataset_root, args.task, args.data_key, user_split=user_split
     )
+    split_info = {
+        "strategy": "user-held-out" if user_split is not None else "official-sample-id",
+        "users": {
+            name: sorted({row["user"] for row in dataset.rows})
+            for name, dataset in datasets.items()
+        },
+        "sample_counts": {name: len(dataset) for name, dataset in datasets.items()},
+    }
     if any(len(dataset) == 0 for dataset in datasets.values()):
         raise ValueError("train_id, val_id, and test_id must all contain samples")
 
@@ -107,6 +124,10 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
 
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    if user_split is not None:
+        (output_dir / "user_split.json").write_text(
+            json.dumps(user_split, indent=2) + "\n", encoding="utf-8"
+        )
     model_path = output_dir / f"{MODEL_NAME}.pt"
     best_state: dict[str, torch.Tensor] | None = None
     best_f1 = -1.0
@@ -122,6 +143,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             model, loaders["val_id"], criterion, device
         )
         val_metrics = _metrics(val_labels, val_predictions, class_names)
+        learning_rate = optimizer.param_groups[0]["lr"]
         scheduler.step(val_loss)
         history.append(
             {
@@ -129,7 +151,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 "train_loss": train_loss,
                 "val_loss": val_loss,
                 "val_macro_f1": val_metrics["macro_f1"],
-                "learning_rate": optimizer.param_groups[0]["lr"],
+                "learning_rate": learning_rate,
             }
         )
         print(
@@ -152,6 +174,11 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                     "class_names": class_names,
                     "input_shape": [1, WINDOW_LENGTH, FEATURE_SIZE],
                     "lstm_hidden_size": args.hidden_size,
+                    "dropout": {
+                        "cnn_residual_branch": CNN_RESIDUAL_DROPOUT,
+                        "sequence": SEQUENCE_DROPOUT,
+                        "classifier_head": HEAD_DROPOUT,
+                    },
                     "temporal_steps": 32,
                     "data_key": args.data_key,
                 },
@@ -188,9 +215,23 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             "input_shape": [1, WINDOW_LENGTH, FEATURE_SIZE],
             "temporal_steps": 32,
             "lstm_hidden_size": args.hidden_size,
-            "lstm_dropout": 0.2,
+            "dropout": {
+                "cnn_residual_branch": CNN_RESIDUAL_DROPOUT,
+                "sequence": SEQUENCE_DROPOUT,
+                "classifier_head": HEAD_DROPOUT,
+            },
+            "scheduler": {
+                "name": "ReduceLROnPlateau",
+                "monitor": "val_loss",
+                "factor": 0.5,
+                "patience": 3,
+                "min_learning_rate": 1e-5,
+            },
             "class_to_index": {name: index for index, name in enumerate(class_names)},
+            "split_strategy": split_info["strategy"],
+            "user_split_manifest": "user_split.json" if user_split is not None else None,
         },
+        "split": split_info,
         "sample_counts": {name: len(dataset) for name, dataset in datasets.items()},
         "training_history": history,
         "test_loss": test_loss,
@@ -215,10 +256,15 @@ def main() -> None:
         "--output-dir", type=Path, default=Path("data/processed/csi-bench/cnn-lstm")
     )
     parser.add_argument("--data-key", default=DATA_KEY)
+    parser.add_argument(
+        "--user-split",
+        type=Path,
+        help="JSON user assignment with train_id, val_id, and test_id arrays",
+    )
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
-    parser.add_argument("--weight-decay", type=float, default=1e-4)
+    parser.add_argument("--weight-decay", type=float, default=1e-3)
     parser.add_argument("--patience", type=int, default=15)
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)

@@ -16,3 +16,10 @@ def test_cnn_lstm_keeps_downsampled_time_sequence() -> None:
     assert sequence.shape == (1, 32, 256)
     assert logits.shape == (1, 2)
     assert torch.isfinite(logits).all()
+    cnn_dropouts = [
+        layer for layer in model.cnn.modules() if isinstance(layer, torch.nn.Dropout2d)
+    ]
+    assert len(cnn_dropouts) == 8
+    assert all(layer.p == 0.1 for layer in cnn_dropouts)
+    assert model.sequence_dropout.p == 0.25
+    assert model.head_dropout.p == 0.4

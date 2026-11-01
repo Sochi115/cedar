@@ -90,10 +90,19 @@ class CsiBenchDataset(Dataset):
 class ResidualBlock(nn.Module):
     """Two-convolution residual block with projection when shape changes."""
 
-    def __init__(self, in_channels: int, out_channels: int, stride: int = 1) -> None:
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        stride: int = 1,
+        dropout: float = 0.0,
+    ) -> None:
         super().__init__()
+        if not 0.0 <= dropout < 1.0:
+            raise ValueError("dropout must be in [0, 1)")
         self.conv1 = nn.Conv2d(in_channels, out_channels, 3, stride, 1, bias=False)
         self.norm1 = nn.BatchNorm2d(out_channels)
+        self.dropout = nn.Dropout2d(dropout) if dropout else nn.Identity()
         self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1, bias=False)
         self.norm2 = nn.BatchNorm2d(out_channels)
         self.activation = nn.ReLU(inplace=True)
@@ -110,6 +119,7 @@ class ResidualBlock(nn.Module):
     def forward(self, values: torch.Tensor) -> torch.Tensor:
         residual = self.skip(values)
         values = self.activation(self.norm1(self.conv1(values)))
+        values = self.dropout(values)
         values = self.norm2(self.conv2(values))
         return self.activation(values + residual)
 
@@ -117,21 +127,21 @@ class ResidualBlock(nn.Module):
 class DeepCnn(nn.Module):
     """ResNet-18-style CNN for CSI time-by-subcarrier maps."""
 
-    def __init__(self, class_count: int) -> None:
+    def __init__(self, class_count: int, residual_dropout: float = 0.0) -> None:
         super().__init__()
         self.features = nn.Sequential(
             nn.Conv2d(1, 32, kernel_size=5, padding=2, bias=False),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2),
-            ResidualBlock(32, 32),
-            ResidualBlock(32, 32),
-            ResidualBlock(32, 64, stride=2),
-            ResidualBlock(64, 64),
-            ResidualBlock(64, 128, stride=2),
-            ResidualBlock(128, 128),
-            ResidualBlock(128, 256, stride=2),
-            ResidualBlock(256, 256),
+            ResidualBlock(32, 32, dropout=residual_dropout),
+            ResidualBlock(32, 32, dropout=residual_dropout),
+            ResidualBlock(32, 64, stride=2, dropout=residual_dropout),
+            ResidualBlock(64, 64, dropout=residual_dropout),
+            ResidualBlock(64, 128, stride=2, dropout=residual_dropout),
+            ResidualBlock(128, 128, dropout=residual_dropout),
+            ResidualBlock(128, 256, stride=2, dropout=residual_dropout),
+            ResidualBlock(256, 256, dropout=residual_dropout),
             nn.AdaptiveAvgPool2d(1),
         )
         self.classifier = nn.Sequential(
@@ -156,7 +166,10 @@ def find_task_dir(dataset_root: Path, task: str) -> Path:
 
 
 def load_task_datasets(
-    dataset_root: Path, task: str, data_key: str = DATA_KEY
+    dataset_root: Path,
+    task: str,
+    data_key: str = DATA_KEY,
+    user_split: dict[str, list[str]] | None = None,
 ) -> tuple[Path, list[str], dict[str, CsiBenchDataset]]:
     task_dir = find_task_dir(dataset_root, task)
     with (task_dir / "metadata" / "label_mapping.json").open(encoding="utf-8") as source:
@@ -169,25 +182,38 @@ def load_task_datasets(
         newline="", encoding="utf-8"
     ) as source:
         reader = csv.DictReader(source)
-        required = {"id", "file_path", "label"}
+        required = {"id", "file_path", "label"} | ({"user"} if user_split is not None else set())
         if not reader.fieldnames or not required.issubset(reader.fieldnames):
             raise ValueError(f"Metadata must contain columns {sorted(required)}")
         rows_by_id = {row["id"]: row for row in reader}
 
+    split_names = ("train_id", "val_id", "test_id")
+    if user_split is not None:
+        if set(user_split) != set(split_names) or any(
+            not isinstance(user_split[name], list) for name in split_names
+        ):
+            raise ValueError(f"User split must contain user lists for {split_names}")
+        assigned_users = [user for name in split_names for user in user_split[name]]
+        observed_users = {row["user"] for row in rows_by_id.values()}
+        if len(assigned_users) != len(set(assigned_users)):
+            raise ValueError("A user appears in more than one split")
+        if set(assigned_users) != observed_users:
+            raise ValueError("User split must assign every dataset user exactly once")
+
     datasets: dict[str, CsiBenchDataset] = {}
-    for split in ("train_id", "val_id", "test_id"):
-        split_path = task_dir / "splits" / f"{split}.json"
-        with split_path.open(encoding="utf-8") as source:
-            sample_ids = json.load(source)
-        missing = [sample_id for sample_id in sample_ids if sample_id not in rows_by_id]
-        if missing:
-            raise ValueError(f"{split} references {len(missing)} unknown sample IDs; first: {missing[0]}")
-        datasets[split] = CsiBenchDataset(
-            task_dir,
-            [rows_by_id[sample_id] for sample_id in sample_ids],
-            label_to_idx,
-            data_key,
-        )
+    for split in split_names:
+        if user_split is None:
+            split_path = task_dir / "splits" / f"{split}.json"
+            with split_path.open(encoding="utf-8") as source:
+                sample_ids = json.load(source)
+            missing = [sample_id for sample_id in sample_ids if sample_id not in rows_by_id]
+            if missing:
+                raise ValueError(f"{split} references {len(missing)} unknown sample IDs; first: {missing[0]}")
+            rows = [rows_by_id[sample_id] for sample_id in sample_ids]
+        else:
+            users = set(user_split[split])
+            rows = [row for row in rows_by_id.values() if row["user"] in users]
+        datasets[split] = CsiBenchDataset(task_dir, rows, label_to_idx, data_key)
 
     split_ids = {name: {row["id"] for row in dataset.rows} for name, dataset in datasets.items()}
     if (
@@ -195,7 +221,7 @@ def load_task_datasets(
         or split_ids["train_id"] & split_ids["test_id"]
         or split_ids["val_id"] & split_ids["test_id"]
     ):
-        raise ValueError("Official train/validation/test splits overlap")
+        raise ValueError("Train/validation/test splits overlap")
     return task_dir, class_names, datasets
 
 
@@ -273,6 +299,19 @@ def render_report(result: dict[str, Any]) -> str:
             axis.text(column, row, str(matrix[row, column]), ha="center", va="center")
     confusion_uri = _image_uri(figure)
 
+    split = result.get("split")
+    split_html = ""
+    if split:
+        split_details = "<br>".join(
+            f"{html.escape(name)}: {split['sample_counts'][name]} samples; "
+            f"users: {html.escape(', '.join(split['users'][name]))}"
+            for name in ("train_id", "val_id", "test_id")
+        )
+        split_html = (
+            f"<section><h2>Data split: {html.escape(split['strategy'])}</h2>"
+            f"<p>{split_details}</p></section>"
+        )
+
     history = result["training_history"]
     figure = Figure(figsize=(8, 4))
     axis = figure.subplots()
@@ -288,6 +327,7 @@ def render_report(result: dict[str, Any]) -> str:
 <style>body{{font:16px system-ui,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#222}}img{{max-width:100%;height:auto}}section{{margin:2rem 0}}</style>
 <h1>{html.escape(result['task'])}: {html.escape(result['model'])}</h1>
 <p>Best epoch: {result['best_epoch']} · Test accuracy: {metrics['accuracy']:.4f} · Macro F1: {metrics['macro_f1']:.4f}</p>
+{split_html}
 <section><h2>Training loss</h2><img alt="Training and validation loss by epoch" src="{loss_uri}"></section>
 <section><h2>Confusion matrix</h2><p>Rows are true classes; columns are predicted classes.</p><img alt="Held-out test confusion matrix" src="{confusion_uri}"></section>
 </html>"""

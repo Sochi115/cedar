@@ -189,20 +189,48 @@ def render_report(result: dict[str, Any]) -> str:
     axis.legend()
     loss_uri = _image_uri(figure)
 
+    split = result.get("split")
+    split_html = ""
+    if split:
+        split_details = "<br>".join(
+            f"{html.escape(name)}: {split['sample_counts'][name]} samples; "
+            f"users: {html.escape(', '.join(split.get('users', {}).get(name, [])))}"
+            for name in ("train_id", "val_id", "test_id")
+        )
+        split_html = (
+            f"<section><h2>Data split: {html.escape(split['strategy'])}</h2>"
+            f"<p>{split_details}</p></section>"
+        )
+
     return f"""<!doctype html>
 <html lang="en"><meta charset="utf-8"><title>{html.escape(result["model"])} report</title>
 <style>body{{font:16px system-ui,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#222}}img{{max-width:100%;height:auto}}section{{margin:2rem 0}}</style>
 <h1>{html.escape(result["task"])}: {html.escape(result["model"])}</h1>
 <p>Test accuracy: {metrics["accuracy"]:.4f} · Macro F1: {metrics["macro_f1"]:.4f}</p>
+{split_html}
 <section><h2>Training and validation loss</h2><img alt="Training and validation log loss by number of trees" src="{loss_uri}"></section>
 <section><h2>Confusion matrix</h2><p>Rows are true labels; columns are predicted labels.</p><img alt="Held-out test confusion matrix" src="{confusion_uri}"></section>
 </html>"""
 
 
 def train(args: argparse.Namespace) -> dict[str, Any]:
+    user_split_path = getattr(args, "user_split", None)
+    user_split = None
+    if user_split_path is not None:
+        with user_split_path.open(encoding="utf-8") as source:
+            user_split = json.load(source)
+    load_options = {"user_split": user_split} if user_split is not None else {}
     task_dir, class_names, datasets = load_task_datasets(
-        args.dataset_root, args.task, args.data_key
+        args.dataset_root, args.task, args.data_key, **load_options
     )
+    split_info = {
+        "strategy": "user-held-out" if user_split is not None else "official-sample-id",
+        "users": {
+            name: sorted({row["user"] for row in getattr(dataset, "rows", [])})
+            for name, dataset in datasets.items()
+        },
+        "sample_counts": {name: len(dataset) for name, dataset in datasets.items()},
+    }
     if any(len(dataset) == 0 for dataset in datasets.values()):
         raise ValueError("train_id, val_id, and test_id must all contain samples")
 
@@ -241,6 +269,10 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
 
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    if user_split is not None:
+        (output_dir / "user_split.json").write_text(
+            json.dumps(user_split, indent=2) + "\n", encoding="utf-8"
+        )
     model_path = output_dir / f"{MODEL_NAME}.joblib"
     joblib.dump(
         {
@@ -270,9 +302,12 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
             "random_state": estimator.random_state,
             "n_jobs": estimator.n_jobs,
             "data_key": args.data_key,
+            "split_strategy": split_info["strategy"],
+            "user_split_manifest": "user_split.json" if user_split is not None else None,
             "feature_count": int(features["train_id"].shape[1]),
         },
         "sample_counts": {name: len(dataset) for name, dataset in datasets.items()},
+        "split": split_info,
         "training_history": training_history,
         "validation_metrics": validation_metrics,
         "test_metrics": test_metrics,
@@ -301,6 +336,11 @@ def main() -> None:
         default=Path("data/processed/csi-bench/random-forest"),
     )
     parser.add_argument("--data-key", default="CSI_amps", help="HDF5 dataset key")
+    parser.add_argument(
+        "--user-split",
+        type=Path,
+        help="JSON user assignment with train_id, val_id, and test_id arrays",
+    )
     parser.add_argument("--jobs", type=int, default=2, help="CPU workers (default: 2)")
     args = parser.parse_args()
     if args.jobs == 0 or args.jobs < -1:
