@@ -150,3 +150,13 @@ uv run python -m evaluation.cli \
 ```
 
 All-data evaluation pools every WiFall participant and includes source manifest train/validation/test partitions; it is descriptive, not a held-out generalization estimate. The script uses the saved manifest, makes no fitting or threshold changes, and keeps data loading, feature extraction, and evaluation inside `enetfall/`. HTML rendering uses generic `evaluation.cli`.
+
+## Evaluate the Random Forest on CSI-Bench
+
+Run the saved ENetFall Random Forest against every sample in CSI-Bench's `FallDetection/metadata/sample_metadata.csv` (not only the official test split):
+
+```bash
+uv run python -m enetfall.evaluate_csi_bench_zero_shot
+```
+
+Writes `data/processed/enetfall/csi-bench-zero-shot-all-run/run.json` and self-contained `report.html`. Model and validation-selected threshold stay fixed. CSI-Bench samples have one stream and variable subcarrier counts; the adapter interpolates bins to 30 and duplicates the stream into three pseudo-receivers. This shape adapter is not physical alignment. Since this all-data evaluation includes the official train, validation, and test partitions, treat it as descriptive domain-transfer evidence, not a held-out benchmark.
