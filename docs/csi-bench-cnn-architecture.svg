@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1080" viewBox="0 0 1800 1080" role="img" aria-labelledby="title description">
+  <title id="title">CSI-Bench Deep CNN architecture</title>
+  <desc id="description">ResNet-18-style CSI classifier. A one-channel 500 by 232 input passes through a convolutional stem, four residual stages with 32, 64, 128, and 256 channels, adaptive average pooling, and a two-layer classifier producing Fall and Nonfall logits.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#52647a"/></marker>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#5278aa"/></marker>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #182536; }
+      .title { font-size: 34px; font-weight: 700; }
+      .subtitle { font-size: 17px; fill: #536477; }
+      .card { fill: #fff; stroke: #cbd5e1; stroke-width: 2; rx: 14; }
+      .cardHead { fill: #eaf1f8; }
+      .stageHead { fill: #e5eef8; }
+      .headHead { fill: #e8f3ed; }
+      .section { font-size: 21px; font-weight: 700; }
+      .body { font-size: 16px; }
+      .small { font-size: 14px; fill: #52647a; }
+      .shape { font-size: 15px; font-weight: 650; fill: #315a83; }
+      .layer { fill: #f6f8fb; stroke: #d7e0ea; stroke-width: 1.5; rx: 8; }
+      .stageLayer { fill: #f4f7fb; stroke: #d3deea; stroke-width: 1.5; rx: 8; }
+      .arrow { fill: none; stroke: #52647a; stroke-width: 2.4; marker-end: url(#arrow); }
+      .skip { fill: none; stroke: #5278aa; stroke-width: 2.3; marker-end: url(#arrowBlue); }
+      .panel { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 14; }
+    </style>
+  </defs>
+  <rect width="1800" height="1080" fill="#f3f6fa"/>
+  <text class="title" x="48" y="58">CSI-Bench Deep CNN</text>
+  <text class="subtitle" x="48" y="90">ResNet-18-style residual network · input: normalized CSI amplitude map · output: two class logits</text>
+
+  <!-- Main forward path -->
+  <g>
+    <rect class="card" x="40" y="145" width="180" height="330"/>
+    <path class="cardHead" d="M54 145 H206 Q220 145 220 159 V201 H40 V159 Q40 145 54 145Z"/>
+    <text class="section" x="62" y="181">Input</text>
+    <text class="body" x="60" y="238">CSI amplitude</text>
+    <rect class="layer" x="58" y="256" width="144" height="66"/>
+    <text class="body" x="130" y="283" text-anchor="middle">1 × 500 × 232</text>
+    <text class="small" x="130" y="306" text-anchor="middle">channel × time × CSI</text>
+    <text class="small" x="60" y="358">Per-sample global</text>
+    <text class="small" x="60" y="380">mean / std normalization</text>
+    <text class="shape" x="60" y="438">B × 1 × 500 × 232</text>
+  </g>
+
+  <g>
+    <rect class="card" x="260" y="145" width="220" height="330"/>
+    <path class="cardHead" d="M274 145 H466 Q480 145 480 159 V201 H260 V159 Q260 145 274 145Z"/>
+    <text class="section" x="282" y="181">Stem</text>
+    <rect class="layer" x="280" y="226" width="180" height="58"/>
+    <text class="body" x="370" y="250" text-anchor="middle">Conv2D 5 × 5</text>
+    <text class="small" x="370" y="271" text-anchor="middle">1 → 32 channels</text>
+    <text class="body" x="370" y="315" text-anchor="middle">BatchNorm + ReLU</text>
+    <rect class="layer" x="280" y="337" width="180" height="48"/>
+    <text class="body" x="370" y="367" text-anchor="middle">MaxPool 2 × 2</text>
+    <text class="shape" x="280" y="438">B × 32 × 250 × 116</text>
+  </g>
+
+  <g>
+    <rect class="card" x="520" y="145" width="220" height="330"/>
+    <path class="stageHead" d="M534 145 H726 Q740 145 740 159 V201 H520 V159 Q520 145 534 145Z"/>
+    <text class="section" x="542" y="181">Stage 1</text>
+    <text class="small" x="542" y="222">2 residual blocks</text>
+    <rect class="stageLayer" x="540" y="238" width="180" height="103"/>
+    <text class="body" x="630" y="266" text-anchor="middle">BasicBlock × 2</text>
+    <text class="small" x="630" y="292" text-anchor="middle">32 → 32 channels</text>
+    <text class="small" x="630" y="316" text-anchor="middle">stride 1 · identity skip</text>
+    <text class="shape" x="540" y="438">B × 32 × 250 × 116</text>
+  </g>
+
+  <g>
+    <rect class="card" x="780" y="145" width="220" height="330"/>
+    <path class="stageHead" d="M794 145 H986 Q1000 145 1000 159 V201 H780 V159 Q780 145 794 145Z"/>
+    <text class="section" x="802" y="181">Stage 2</text>
+    <text class="small" x="802" y="222">2 residual blocks</text>
+    <rect class="stageLayer" x="800" y="238" width="180" height="103"/>
+    <text class="body" x="890" y="266" text-anchor="middle">BasicBlock × 2</text>
+    <text class="small" x="890" y="292" text-anchor="middle">32 → 64 channels</text>
+    <text class="small" x="890" y="316" text-anchor="middle">first stride 2 · projection skip</text>
+    <text class="shape" x="800" y="438">B × 64 × 125 × 58</text>
+  </g>
+
+  <g>
+    <rect class="card" x="1040" y="145" width="220" height="330"/>
+    <path class="stageHead" d="M1054 145 H1246 Q1260 145 1260 159 V201 H1040 V159 Q1040 145 1054 145Z"/>
+    <text class="section" x="1062" y="181">Stage 3</text>
+    <text class="small" x="1062" y="222">2 residual blocks</text>
+    <rect class="stageLayer" x="1060" y="238" width="180" height="103"/>
+    <text class="body" x="1150" y="266" text-anchor="middle">BasicBlock × 2</text>
+    <text class="small" x="1150" y="292" text-anchor="middle">64 → 128 channels</text>
+    <text class="small" x="1150" y="316" text-anchor="middle">first stride 2 · projection skip</text>
+    <text class="shape" x="1060" y="438">B × 128 × 63 × 29</text>
+  </g>
+
+  <g>
+    <rect class="card" x="1300" y="145" width="220" height="330"/>
+    <path class="stageHead" d="M1314 145 H1506 Q1520 145 1520 159 V201 H1300 V159 Q1300 145 1314 145Z"/>
+    <text class="section" x="1322" y="181">Stage 4</text>
+    <text class="small" x="1322" y="222">2 residual blocks</text>
+    <rect class="stageLayer" x="1320" y="238" width="180" height="103"/>
+    <text class="body" x="1410" y="266" text-anchor="middle">BasicBlock × 2</text>
+    <text class="small" x="1410" y="292" text-anchor="middle">128 → 256 channels</text>
+    <text class="small" x="1410" y="316" text-anchor="middle">first stride 2 · projection skip</text>
+    <text class="shape" x="1320" y="438">B × 256 × 32 × 15</text>
+  </g>
+
+  <g>
+    <rect class="card" x="1560" y="145" width="210" height="330"/>
+    <path class="headHead" d="M1574 145 H1756 Q1770 145 1770 159 V201 H1560 V159 Q1560 145 1574 145Z"/>
+    <text class="section" x="1582" y="181">Classifier</text>
+    <rect class="layer" x="1580" y="220" width="170" height="48"/>
+    <text class="body" x="1665" y="250" text-anchor="middle">AdaptiveAvgPool 1 × 1</text>
+    <text class="small" x="1665" y="290" text-anchor="middle">Flatten → 256</text>
+    <text class="body" x="1665" y="324" text-anchor="middle">Linear 256 → 128</text>
+    <text class="small" x="1665" y="350" text-anchor="middle">ReLU · Dropout 0.4</text>
+    <rect class="layer" x="1580" y="369" width="170" height="45"/>
+    <text class="body" x="1665" y="398" text-anchor="middle">Linear 128 → 2</text>
+    <text class="shape" x="1580" y="446">Fall / Nonfall logits</text>
+  </g>
+
+  <path class="arrow" d="M222 310 H254"/>
+  <path class="arrow" d="M482 310 H514"/>
+  <path class="arrow" d="M742 310 H774"/>
+  <path class="arrow" d="M1002 310 H1034"/>
+  <path class="arrow" d="M1262 310 H1294"/>
+  <path class="arrow" d="M1522 310 H1554"/>
+
+  <!-- Residual unit detail -->
+  <rect class="panel" x="40" y="530" width="1120" height="500"/>
+  <text class="section" x="68" y="574">Inside each residual block</text>
+  <text class="small" x="68" y="601">Two 3 × 3 convolutions; shortcut preserves or projects input before addition.</text>
+
+  <rect class="layer" x="75" y="680" width="130" height="72"/>
+  <text class="body" x="140" y="710" text-anchor="middle">Input</text>
+  <text class="small" x="140" y="734" text-anchor="middle">x</text>
+  <rect class="stageLayer" x="260" y="680" width="190" height="72"/>
+  <text class="body" x="355" y="708" text-anchor="middle">Conv 3 × 3</text>
+  <text class="small" x="355" y="733" text-anchor="middle">stride s · BN · ReLU</text>
+  <rect class="stageLayer" x="505" y="680" width="190" height="72"/>
+  <text class="body" x="600" y="708" text-anchor="middle">Conv 3 × 3</text>
+  <text class="small" x="600" y="733" text-anchor="middle">stride 1 · BatchNorm</text>
+  <circle cx="785" cy="716" r="25" fill="#fff" stroke="#7f91a7" stroke-width="2"/>
+  <text class="section" x="785" y="724" text-anchor="middle">+</text>
+  <rect class="layer" x="850" y="680" width="110" height="72"/>
+  <text class="body" x="905" y="722" text-anchor="middle">ReLU</text>
+  <rect class="layer" x="1000" y="680" width="120" height="72"/>
+  <text class="body" x="1060" y="722" text-anchor="middle">Output</text>
+  <path class="arrow" d="M207 716 H254"/>
+  <path class="arrow" d="M452 716 H499"/>
+  <path class="arrow" d="M697 716 H753"/>
+  <path class="arrow" d="M812 716 H844"/>
+  <path class="arrow" d="M962 716 H994"/>
+  <path class="skip" d="M140 754 V824 H785 V747"/>
+  <rect x="335" y="791" width="315" height="62" rx="10" fill="#edf3fa" stroke="#b6c9df" stroke-width="1.5"/>
+  <text class="body" x="492" y="817" text-anchor="middle">Shortcut: identity, or 1 × 1 Conv + BN</text>
+  <text class="small" x="492" y="840" text-anchor="middle">projection used when channels or stride change</text>
+
+  <rect class="panel" x="1190" y="530" width="580" height="500"/>
+  <text class="section" x="1220" y="574">Downsampling and dimensions</text>
+  <circle cx="1233" cy="626" r="5" fill="#5278aa"/>
+  <text class="body" x="1252" y="632">Stem max-pool halves time and CSI axes.</text>
+  <circle cx="1233" cy="681" r="5" fill="#5278aa"/>
+  <text class="body" x="1252" y="687">First block of Stages 2–4 uses stride 2.</text>
+  <circle cx="1233" cy="736" r="5" fill="#5278aa"/>
+  <text class="body" x="1252" y="742">Skip path projects with 1 × 1 Conv + BN</text>
+  <text class="body" x="1252" y="766">when stride or channel count changes.</text>
+  <circle cx="1233" cy="813" r="5" fill="#5278aa"/>
+  <text class="body" x="1252" y="819">Adaptive pooling removes spatial dimensions.</text>
+  <circle cx="1233" cy="868" r="5" fill="#5278aa"/>
+  <text class="body" x="1252" y="874">Output layer emits two logits; no softmax</text>
+  <text class="body" x="1252" y="898">is part of the training model.</text>
+  <line x1="1220" y1="932" x2="1740" y2="932" stroke="#d5dee8" stroke-width="1.5"/>
+  <text class="small" x="1220" y="966">Spatial sizes use ceil-halving for stride-2 convolutions.</text>
+  <text class="small" x="1220" y="991">Checkpoint class order: Fall (0), Nonfall (1).</text>
+</svg>

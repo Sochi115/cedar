@@ -38,6 +38,19 @@ uv run python -m csi_bench.cnn data/raw/csi-bench \
 
 Outputs: `csi-bench-cnn.pt` (best validation macro-F1 checkpoint), `run.json`, and self-contained `report.html` with loss curves and held-out test confusion matrix. Use `--task` to select another CSI-Bench supervised task with the same metadata/split/HDF5 layout. `RawContinuousRecording` is a separate raw capture collection and is not consumed by this loader.
 
+![CSI-Bench CNN architecture](docs/csi-bench-cnn-architecture.svg)
+
+The existing baseline checkpoint and metrics are in `data/processed/csi-bench/cnn/`; its recorded config uses official splits, seed 42, and the defaults below. No baseline retraining needed unless checkpoint/config differs on your machine. Train the CNN+LSTM model with matching settings:
+
+```bash
+uv run python -m csi_bench.cnn_lstm data/raw/csi-bench \
+  --task FallDetection \
+  --output-dir data/processed/csi-bench/cnn-lstm \
+  --hidden-size 64
+```
+
+The LSTM receives 32 chronologically ordered CNN feature vectors per sample. It saves checkpoint, metrics, and held-out confusion-matrix report. Compare test results only after model selection is complete on validation. If baseline artifacts are unavailable or use different settings, retrain baseline with `python -m csi_bench.cnn` and a separate output directory.
+
 Train the CSI-Bench Random Forest baseline using its official splits:
 
 ```bash
@@ -47,6 +60,27 @@ uv run python -m csi_bench.random_forest data/raw/csi-bench \
 ```
 
 It extracts robust-normalized temporal statistics, then saves `csi-bench-random-forest.joblib`, `run.json`, and self-contained `report.html` with the held-out test confusion matrix and training/validation log-loss curves. Validation metrics are reported without tuning; final metrics use the official test split.
+
+Evaluate that trained CSI-Bench forest as two separate zero-shot tests on ENetFall and WiFall held-out test data:
+
+```bash
+uv run python -m csi_bench.evaluate_external \
+  --model data/processed/csi-bench/random-forest/csi-bench-random-forest.joblib \
+  --enetfall-root data/raw/ENetFall \
+  --wifall-root data/raw/wifall/WiFall \
+  --wifall-split data/processed/wifall/split.json \
+  --output-dir data/processed/csi-bench/external-random-forest
+```
+
+Creates per-dataset `run.json` and detailed reports plus one combined `report.html` with both metric summaries and confusion matrices. Add `--all-data` to evaluate every ENetFall event and WiFall recording, including records in source train/validation partitions. This is zero-shot evaluation: each source is index-interpolated to CSI-Bench's 500 × 232 input shape, an approximate feature alignment that makes results exploratory rather than directly comparable to in-domain CSI-Bench metrics.
+
+Run the same full-dataset evaluation with the trained CSI-Bench CNN:
+
+```bash
+uv run python -m csi_bench.evaluate_external_cnn --all-data
+```
+
+Outputs go to `data/processed/csi-bench/external-cnn/`, separate from the Random Forest report.
 
 ## 1. Download WiFall
 
