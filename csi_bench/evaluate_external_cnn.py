@@ -1,4 +1,4 @@
-"""Evaluate a trained CSI-Bench CNN on ENetFall and WiFall."""
+"""Evaluate a trained CSI-Bench CNN or CNN-LSTM on ENetFall and WiFall."""
 
 from __future__ import annotations
 
@@ -20,6 +20,8 @@ from .cnn import (
     WINDOW_LENGTH,
     DeepCnn,
 )
+from .cnn_lstm import MODEL_ARCHITECTURE as CNN_LSTM_ARCHITECTURE
+from .cnn_lstm import DeepCnnLstm
 from .evaluate_external import (
     LABELS,
     _canonical_label,
@@ -36,10 +38,17 @@ class _CnnClassifier:
     classes_ = np.asarray(LABELS)
 
     def __init__(
-        self, model: nn.Module, class_names: list[str], device: torch.device
+        self,
+        model: nn.Module,
+        class_names: list[str],
+        device: torch.device,
+        model_name: str,
+        model_family: str,
     ) -> None:
         self.model = model.eval()
         self.device = device
+        self.model_name = model_name
+        self.model_family = model_family
         model_labels = [_canonical_label(name) for name in class_names]
         if set(model_labels) != set(LABELS):
             raise ValueError("CSI-Bench CNN must contain fall and non-fall classes")
@@ -86,14 +95,26 @@ def _load_classifier(model_path: str | Path, device: torch.device) -> _CnnClassi
     checkpoint = torch.load(
         Path(model_path).expanduser(), map_location=device, weights_only=True
     )
-    if checkpoint.get("architecture") != MODEL_ARCHITECTURE:
-        raise ValueError("Unsupported CSI-Bench CNN architecture")
     if checkpoint.get("input_shape") != [1, WINDOW_LENGTH, FEATURE_SIZE]:
         raise ValueError("CSI-Bench CNN checkpoint has unexpected input shape")
     class_names = checkpoint["class_names"]
-    model = DeepCnn(len(class_names)).to(device)
+    architecture = checkpoint.get("architecture")
+    if architecture == MODEL_ARCHITECTURE:
+        model = DeepCnn(len(class_names)).to(device)
+        model_name, model_family = MODEL_NAME, "cnn"
+    elif architecture in {
+        CNN_LSTM_ARCHITECTURE,
+        "deep_residual_cnn_lstm_v3_residual_dropout",
+    }:
+        # V3 adds dropout only; dropout is inactive in eval and state keys match.
+        model = DeepCnnLstm(len(class_names), int(checkpoint["lstm_hidden_size"])).to(
+            device
+        )
+        model_name, model_family = "csi-bench-cnn-lstm", "cnn_lstm"
+    else:
+        raise ValueError(f"Unsupported CSI-Bench model architecture: {architecture!r}")
     model.load_state_dict(checkpoint["state_dict"])
-    return _CnnClassifier(model, class_names, device)
+    return _CnnClassifier(model, class_names, device, model_name, model_family)
 
 
 def run_evaluations(
@@ -129,13 +150,13 @@ def run_evaluations(
             labels,
             label_order=LABELS,
             positive_label="fall",
-            run_id=f"csi-bench-cnn-{run_id}-zero-shot-{evaluation_scope}",
+            run_id=f"{model.model_name}-{run_id}-zero-shot-{evaluation_scope}",
             split_name=evaluation_scope,
             dataset_metadata={"name": dataset_name},
             task_metadata={"name": "binary_fall_detection", "signal": "WiFi CSI"},
             model_metadata={
-                "family": "cnn",
-                "name": MODEL_NAME,
+                "family": model.model_family,
+                "name": model.model_name,
                 "trained_on": "CSI-Bench",
                 "device": str(inference_device),
             },
@@ -169,7 +190,12 @@ def run_evaluations(
         del features
 
     report_path = destination / "report.html"
-    report_path.write_text(_combined_report(results, "CSI-Bench CNN"), encoding="utf-8")
+    report_model_name = (
+        "CSI-Bench CNN-LSTM" if model.model_family == "cnn_lstm" else "CSI-Bench CNN"
+    )
+    report_path.write_text(
+        _combined_report(results, report_model_name), encoding="utf-8"
+    )
     return report_path
 
 

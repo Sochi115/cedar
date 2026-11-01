@@ -44,7 +44,9 @@ class _FixtureCnn(torch.nn.Module):
 
 
 def test_cnn_classifier_reorders_class_probabilities() -> None:
-    model = _CnnClassifier(_FixtureCnn(), ["Fall", "Nonfall"], torch.device("cpu"))
+    model = _CnnClassifier(
+        _FixtureCnn(), ["Fall", "Nonfall"], torch.device("cpu"), "fixture", "cnn"
+    )
     predictions = model.predict(np.zeros((2, 500, 232), dtype=np.float32))
 
     np.testing.assert_array_equal(predictions, ["fall", "non-fall"])

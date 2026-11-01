@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="720" viewBox="0 0 1680 720" role="img" aria-labelledby="title description">
+  <title id="title">CSI-Bench CNN-LSTM user v3 architecture</title>
+  <desc id="description">A CSI ResNet-style CNN encoder creates a 32-step sequence with 256 features per step. A one-layer 64-unit LSTM processes the sequence and a dropout-regularized linear head predicts Fall or Nonfall.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10Z" fill="#53677d"/></marker>
+    <style>
+      text{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#182536}
+      .title{font-size:32px;font-weight:700}.sub{font-size:17px;fill:#536477}.head{font-size:20px;font-weight:700}
+      .body{font-size:16px}.small{font-size:14px;fill:#52647a}.shape{font-size:15px;font-weight:650;fill:#315a83}
+      .box{fill:#fff;stroke:#cbd5e1;stroke-width:2;rx:14}.blue{fill:#eaf1f8}.green{fill:#e8f3ed}
+      .inner{fill:#f6f8fb;stroke:#d7e0ea;stroke-width:1.5;rx:8}.arrow{stroke:#53677d;stroke-width:2.5;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1680" height="720" fill="#f3f6fa"/>
+  <text class="title" x="48" y="55">CSI-Bench CNN-LSTM · user v3</text>
+  <text class="sub" x="48" y="86">Same residual CNN trunk; retain compressed time axis and classify its ordered feature sequence.</text>
+
+  <rect class="box" x="40" y="145" width="185" height="265"/>
+  <path class="blue" d="M54 145H211Q225 145 225 159V195H40V159Q40 145 54 145Z"/>
+  <text class="head" x="62" y="177">CSI input</text>
+  <text class="body" x="132" y="241" text-anchor="middle">Normalized CSI</text>
+  <text class="shape" x="132" y="276" text-anchor="middle">1 × 500 × 232</text>
+  <text class="small" x="132" y="307" text-anchor="middle">channel × time × feature</text>
+  <text class="small" x="132" y="361" text-anchor="middle">500 time samples</text>
+  <text class="small" x="132" y="383" text-anchor="middle">232 CSI features</text>
+
+  <rect class="box" x="270" y="145" width="390" height="265"/>
+  <path class="blue" d="M284 145H646Q660 145 660 159V195H270V159Q270 145 284 145Z"/>
+  <text class="head" x="292" y="177">Residual CNN encoder</text>
+  <text class="small" x="292" y="219">5 × 5 conv stem + max-pool</text>
+  <rect class="inner" x="292" y="237" width="346" height="76"/>
+  <text class="body" x="465" y="266" text-anchor="middle">4 residual stages · 2 blocks each</text>
+  <text class="small" x="465" y="291" text-anchor="middle">32 → 64 → 128 → 256 channels</text>
+  <text class="small" x="292" y="343">Stage transitions downsample time and CSI axes.</text>
+  <text class="small" x="292" y="368">Residual branch dropout: 0.1 during training.</text>
+  <text class="shape" x="292" y="393">B × 256 × 32 × 15</text>
+
+  <rect class="box" x="705" y="145" width="210" height="265"/>
+  <path class="blue" d="M719 145H901Q915 145 915 159V195H705V159Q705 145 719 145Z"/>
+  <text class="head" x="727" y="177">Sequence</text>
+  <text class="body" x="810" y="242" text-anchor="middle">Mean over CSI axis</text>
+  <text class="shape" x="810" y="278" text-anchor="middle">32 × 256</text>
+  <text class="small" x="810" y="309" text-anchor="middle">time steps × features</text>
+  <text class="body" x="810" y="356" text-anchor="middle">Dropout 0.25</text>
+  <text class="small" x="810" y="379" text-anchor="middle">sequence regularization</text>
+
+  <rect class="box" x="960" y="145" width="250" height="265"/>
+  <path class="blue" d="M974 145H1196Q1210 145 1210 159V195H960V159Q960 145 974 145Z"/>
+  <text class="head" x="982" y="177">LSTM</text>
+  <text class="body" x="1085" y="251" text-anchor="middle">1 recurrent layer</text>
+  <text class="shape" x="1085" y="283" text-anchor="middle">256 → 64 hidden</text>
+  <text class="small" x="1085" y="318" text-anchor="middle">processes 32 steps</text>
+  <text class="small" x="1085" y="343" text-anchor="middle">final hidden state</text>
+
+  <rect class="box" x="1255" y="145" width="365" height="265"/>
+  <path class="green" d="M1269 145H1606Q1620 145 1620 159V195H1255V159Q1255 145 1269 145Z"/>
+  <text class="head" x="1277" y="177">Classifier</text>
+  <text class="body" x="1437" y="247" text-anchor="middle">Dropout 0.4 during training</text>
+  <rect class="inner" x="1290" y="272" width="295" height="55"/>
+  <text class="body" x="1437" y="306" text-anchor="middle">Linear 64 → 2 logits</text>
+  <text class="shape" x="1437" y="366" text-anchor="middle">Fall / Nonfall</text>
+  <text class="small" x="1437" y="389" text-anchor="middle">checkpoint class order: Fall, Nonfall</text>
+
+  <path class="arrow" d="M227 278H263"/><path class="arrow" d="M662 278H698"/>
+  <path class="arrow" d="M917 278H953"/><path class="arrow" d="M1212 278H1248"/>
+
+  <rect class="box" x="40" y="475" width="1580" height="175"/>
+  <text class="head" x="70" y="518">What differs from baseline CNN?</text>
+  <text class="body" x="70" y="558">Baseline global-average-pools both spatial axes into one vector. CNN-LSTM pools only the CSI axis, then passes ordered time features to LSTM.</text>
+  <text class="body" x="70" y="592">Dropout settings from user-v3 run metadata: residual branch 0.1, sequence 0.25, classifier head 0.4.</text>
+  <text class="small" x="70" y="622">Inference disables dropout. Input conversion for ENetFall/WiFall is approximate; channel-index interpolation is not physical calibration.</text>
+</svg>

@@ -80,7 +80,13 @@ Run the same full-dataset evaluation with the trained CSI-Bench CNN:
 uv run python -m csi_bench.evaluate_external_cnn --all-data
 ```
 
-Outputs go to `data/processed/csi-bench/external-cnn/`, separate from the Random Forest report.
+Outputs go to `data/processed/csi-bench/external-cnn/`, separate from the Random Forest report. Combine standard and user-split cross-dataset results, executive ranking, confusion matrices, and inline neural-network diagrams with:
+
+```bash
+uv run python -m csi_bench.cross_dataset_report
+```
+
+The combined report is `data/processed/csi-bench/cross-dataset-comparison/report.html`. Best-model ranking uses equal-weight mean balanced accuracy across ENetFall and WiFall.
 
 ## 1. Download WiFall
 
