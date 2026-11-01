@@ -2,12 +2,13 @@
 
 Proof of concept for WiFi CSI fall detection using the WiFall dataset.
 
-This repository has two separate stages:
+This repository has three separate stages:
 
-1. WiFall-specific data loading and SVM training.
-2. Generic model validation and static HTML reporting.
+1. WiFall-specific data loading and model training.
+2. CSI-Bench HDF5 loading and CNN training.
+3. Generic model validation and static HTML reporting.
 
-The HTML report does not depend on WiFall, WiFi CSI, or SVM. Any compatible classification model can produce an evaluation result artifact for the same renderer.
+The HTML report does not depend on WiFall, CSI-Bench, WiFi CSI, or a specific model. Any compatible classification model can produce an evaluation result artifact for the same renderer.
 
 ## Requirements
 
@@ -22,6 +23,30 @@ uv sync
 ```
 
 Run commands from repository root.
+
+## Train a CNN on CSI-Bench
+
+The [CSI-Bench benchmark](https://github.com/guozhen-jenn-zhu/CSI-Bench-Real-WiFi-Sensing-Benchmark) provides task folders with `metadata/sample_metadata.csv`, `metadata/label_mapping.json`, official ID lists under `splits/`, and per-sample HDF5 files. This repository's default task is `FallDetection`; its `train_id.json`, `val_id.json`, and `test_id.json` are used as provided. HDF5 samples use `CSI_amps` with shape `(232, 500, 1)`. The loader normalizes each sample and feeds CNN tensors shaped `(1, 500, 232)`. Model uses an 18-layer residual CNN, up to 100 epochs, and validation-loss learning-rate reduction/early stopping.
+
+Train from the repository root:
+
+```bash
+uv run python -m csi_bench.cnn data/raw/csi-bench \
+  --task FallDetection \
+  --output-dir data/processed/csi-bench/cnn
+```
+
+Outputs: `csi-bench-cnn.pt` (best validation macro-F1 checkpoint), `run.json`, and self-contained `report.html` with loss curves and held-out test confusion matrix. Use `--task` to select another CSI-Bench supervised task with the same metadata/split/HDF5 layout. `RawContinuousRecording` is a separate raw capture collection and is not consumed by this loader.
+
+Train the CSI-Bench Random Forest baseline using its official splits:
+
+```bash
+uv run python -m csi_bench.random_forest data/raw/csi-bench \
+  --task FallDetection \
+  --output-dir data/processed/csi-bench/random-forest
+```
+
+It extracts robust-normalized temporal statistics, then saves `csi-bench-random-forest.joblib`, `run.json`, and self-contained `report.html` with the held-out test confusion matrix and training/validation log-loss curves. Validation metrics are reported without tuning; final metrics use the official test split.
 
 ## 1. Download WiFall
 
@@ -491,5 +516,5 @@ uv run pytest
 Run lint checks:
 
 ```bash
-uv run ruff check evaluation wifall tests pyproject.toml
+uv run ruff check csi_bench evaluation wifall tests pyproject.toml
 ```
